@@ -1,0 +1,3 @@
+# Versions already SHIPPED (frozen builds). A release must be higher than the highest one listed (npm run check:release-version, run first by the release script).
+# Format: <version>  <note>  (Android: also versionCode=N). Add a line when a build is declared shipped.
+0.1.7  pkg #7 989d84f7 (dvpnd 18.36) frozen gate build

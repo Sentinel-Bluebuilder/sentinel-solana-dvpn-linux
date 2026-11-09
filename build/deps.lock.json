@@ -1,0 +1,158 @@
+{
+  "_comment": "Every third-party program the Linux packages ship, per CPU architecture (x64 | arm64). Pinned by version + SHA-256 (checked against each publisher's own digest file: amd64 on 2026-10-21, arm64 on 2026-10-22 — hysteria hashes.txt, v2ray/Xray .zip.dgst); scripts/fetch-deps.mjs refuses any mismatch and any binary whose ELF machine type is not the target arch. Same versions as the Windows app. WireGuard / AmneziaWG / OpenVPN / nftables come from the distribution (package dependencies or install-deps.sh), not bundled. Bump = new url + sha256 for EVERY arch + a live test.",
+  "arches": [
+    "x64",
+    "arm64"
+  ],
+  "appimageRuntime": {
+    "_comment": "Static AppImage type2 runtime put in front of the arm64 AppImage by scripts/release-linux.mjs (electron-builder 25's arm64 runtime links the unversioned libz.so and did not start on stock Debian 12 / Ubuntu 24.04 arm64). sha256 = the GitHub release asset digest of tag 20251108. x64 too since Q0382: electron-builder's x64 runtime dlopens libfuse.so.2, absent on stock Ubuntu 24.04, so the AppImage died before AppRun.",
+    "arm64": {
+      "version": "type2-runtime 20251108",
+      "url": "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-aarch64",
+      "sha256": "00cbdfcf917cc6c0ff6d3347d59e0ca1f7f45a6df1a428a0d6d8a78664d87444"
+    },
+    "x64": {
+      "version": "type2-runtime 20251108",
+      "url": "https://github.com/AppImage/type2-runtime/releases/download/20251108/runtime-x86_64",
+      "sha256": "2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d"
+    }
+  },
+  "deps": [
+    {
+      "name": "hysteria2",
+      "title": "Hysteria 2",
+      "version": "2.13.0",
+      "kind": "exe",
+      "dest": "resources/bin/hysteria2/hysteria2",
+      "builds": {
+        "x64": {
+          "url": "https://github.com/apernet/hysteria/releases/download/app/v2.13.0/hysteria-linux-amd64",
+          "sha256": "907ba8c9693edb104b20582681fb7dc15639d5b64a9cbb616a7b539190a86691"
+        },
+        "arm64": {
+          "url": "https://github.com/apernet/hysteria/releases/download/app/v2.13.0/hysteria-linux-arm64",
+          "sha256": "a68a61a84452ca250ce0368202521965ca9cc9d801a404f1dc9008ac6cf677a7"
+        }
+      },
+      "license": "MIT",
+      "licenseUrl": "https://github.com/apernet/hysteria/blob/master/LICENSE.md",
+      "sourceUrl": "https://github.com/apernet/hysteria/tree/app/v2.13.0"
+    },
+    {
+      "name": "v2ray",
+      "title": "V2Ray",
+      "version": "5.53.0",
+      "kind": "zip",
+      "dest": "resources/bin/v2ray",
+      "files": [
+        "v2ray",
+        "geoip.dat",
+        "geosite.dat"
+      ],
+      "exec": [
+        "v2ray"
+      ],
+      "builds": {
+        "x64": {
+          "url": "https://github.com/v2fly/v2ray-core/releases/download/v5.53.0/v2ray-linux-64.zip",
+          "sha256": "6bbb8aee65a57d0b12599b4b7c842b3ad0daca4436e661d94015c447cb31b4fa"
+        },
+        "arm64": {
+          "url": "https://github.com/v2fly/v2ray-core/releases/download/v5.53.0/v2ray-linux-arm64-v8a.zip",
+          "sha256": "2bda03a3d6b93122cb418504dc1c9ada10f99ae6be58a1fcc4a5ca1a01e12a30"
+        }
+      },
+      "license": "MIT",
+      "licenseUrl": "https://github.com/v2fly/v2ray-core/blob/master/LICENSE",
+      "sourceUrl": "https://github.com/v2fly/v2ray-core/tree/v5.53.0"
+    },
+    {
+      "name": "xray",
+      "title": "Xray",
+      "version": "26.3.27",
+      "kind": "zip",
+      "dest": "resources/bin/xray",
+      "files": [
+        "xray",
+        "geoip.dat",
+        "geosite.dat"
+      ],
+      "exec": [
+        "xray"
+      ],
+      "builds": {
+        "x64": {
+          "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-64.zip",
+          "sha256": "23cd9af937744d97776ee35ecad4972cf4b2109d1e0fe6be9930467608f7c8ae"
+        },
+        "arm64": {
+          "url": "https://github.com/XTLS/Xray-core/releases/download/v26.3.27/Xray-linux-arm64-v8a.zip",
+          "sha256": "4d30283ae614e3057f730f67cd088a42be6fdf91f8639d82cb69e48cde80413c"
+        }
+      },
+      "license": "MPL-2.0",
+      "licenseUrl": "https://github.com/XTLS/Xray-core/blob/main/LICENSE",
+      "sourceUrl": "https://github.com/XTLS/Xray-core/tree/v26.3.27"
+    }
+  ],
+  "local": [
+    {
+      "name": "sentinel-dvpnd",
+      "title": "Sentinel dVPN daemon (sentinel-dvpnd)",
+      "version": "fork-cb33-4-final6.1",
+      "license": "Sentinel dVPN License",
+      "licenseUrl": "https://github.com/sentinel-official/sentinel-solana/blob/main/LICENSE",
+      "sourceUrl": "https://github.com/sentinel-official/sentinel-solana",
+      "noticesFile": "dvpnd-THIRD-PARTY-NOTICES.txt",
+      "_noticesFile": "Every Go module compiled into the binary with its full license text (and upstream NOTICE files), generated from the binary's own module list (go version -m). Kept in build/licenses/, shipped next to THIRD-PARTY-NOTICES.txt (electron-builder.yml extraFiles). Regenerate with each dvpnd bump.",
+      "path": "resources/bin/sentinel-dvpnd",
+      "builds": {
+        "x64": {
+          "file": "sentinel-dvpnd-linux-amd64",
+          "sha256": "0fbd947e41ad641f43e76261f4c07ac2241d045152277d457748a61d5714570a"
+        },
+        "arm64": {
+          "file": "sentinel-dvpnd-linux-arm64",
+          "sha256": "a702e2b6d1f4de3a006dd7a89a57f5675677fa48dead1afe62b790ba1b6ad8cd"
+        }
+      },
+      "note": "sentinel-dvpnd from fork tag fork-cb33-4-final6.1 (02b22fc), devnet ldflags (ProgramID J52dyXW3…, Mint Hen2LVP6…), go version go1.27.3 linux/amd64; repinned by scripts/repin-dvpnd.mjs from the stage MANIFEST. Was fork-cb33-4-final6."
+    }
+  ],
+  "bundled": [
+    {
+      "_comment": "Libraries compiled into what we ship (not programs). Listed in THIRD-PARTY-NOTICES with their license text: from node_modules for npm packages (OFL-1.1 requires its text; LGPL-3.0 its notice and a source link; version read at build time), from build/licenses/ for a Go library compiled into sentinel-dvpnd (version pinned here; bump with the dvpnd tag in local[0].note). First = go-sqlite3-wasm, printed right after the daemon.",
+      "package": "github.com/ncruces/go-sqlite3-wasm/v6",
+      "title": "go-sqlite3-wasm",
+      "version": "v6.4.35401",
+      "where": "compiled into sentinel-dvpnd",
+      "license": "MIT-0 (SQLite: public domain)",
+      "licenseFile": "build/licenses/go-sqlite3-wasm.txt",
+      "sourceUrl": "https://github.com/ncruces/go-sqlite3-wasm/tree/v6.4.35401"
+    },
+    {
+      "package": "@fontsource-variable/outfit",
+      "title": "Outfit font",
+      "license": "OFL-1.1",
+      "sourceUrl": "https://github.com/Outfitio/Outfit-Fonts"
+    },
+    {
+      "package": "@fontsource-variable/jetbrains-mono",
+      "title": "JetBrains Mono font",
+      "license": "OFL-1.1",
+      "sourceUrl": "https://github.com/JetBrains/JetBrainsMono"
+    },
+    {
+      "package": "@fontsource/tomorrow",
+      "title": "Tomorrow font",
+      "license": "OFL-1.1",
+      "sourceUrl": "https://github.com/MonicaRizzolli/Tomorrow"
+    },
+    {
+      "package": "rpc-websockets",
+      "title": "rpc-websockets (via @solana/web3.js)",
+      "license": "LGPL-3.0-only",
+      "sourceUrl": "https://github.com/elpheria/rpc-websockets"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+// Devnet dVPN: members of the `sentinel-dvpn` group may start or restart the VPN service unit, and
+// nothing else, without a password. dvpnd refuses to start until the device holds an on-chain
+// permission (grant); after device setup the app starts it with `systemctl start` here, so an
+// upgraded install does not wait out the unit's restart backoff. Stop, enable, disable, edits
+// and every other unit still need an administrator. Installed by the package / setup-daemon.sh,
+// removed on uninstall.
+polkit.addRule(function (action, subject) {
+  if (action.id === 'org.freedesktop.systemd1.manage-units' &&
+      action.lookup('unit') === 'sentinel-dvpnd@c0.service' &&
+      (action.lookup('verb') === 'start' || action.lookup('verb') === 'restart') &&
+      subject.isInGroup('sentinel-dvpn')) {
+    return polkit.Result.YES;
+  }
+  return polkit.Result.NOT_HANDLED;
+});

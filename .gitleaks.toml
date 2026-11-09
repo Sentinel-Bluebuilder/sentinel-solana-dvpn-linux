@@ -1,0 +1,12 @@
+# gitleaks config: the default rules, plus the one known fake value our tests use.
+# 0123456789abcdef is a placeholder "api-key" in the RPC masking/redaction unit tests
+# (tests/unit/rpc-mask.test.ts, tests/unit/rpc-redact.test.ts). It is not a key.
+# Allowlisted by exact value only, so any real key anywhere still fires.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "fake api-key placeholder in unit tests"
+regexTarget = "secret"
+regexes = ['''^0123456789abcdef$''']
