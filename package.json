@@ -1,6 +1,6 @@
 {
   "name": "devnet-dvpn-linux",
-  "version": "0.1.20",
+  "version": "0.1.21",
   "private": true,
   "description": "Devnet dVPN for Linux — pure peer-to-peer dVPN desktop app on the Sentinel Solana devnet protocol",
   "homepage": "https://sentinel.co",
