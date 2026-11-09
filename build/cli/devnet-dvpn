@@ -1,0 +1,5 @@
+#!/bin/sh
+# Devnet dVPN command line. The package links /usr/bin/devnet-dvpn here.
+# Runs the bundled CLI with the app's own Node runtime (same pattern as VS Code's `code`).
+APP_DIR="$(dirname "$(dirname "$(readlink -f "$0")")")"
+ELECTRON_RUN_AS_NODE=1 NODE_NO_WARNINGS=1 exec "$APP_DIR/devnet-dvpn-desktop" "$APP_DIR/resources/app.asar/out/cli/devnet-dvpn.cjs" "$@"

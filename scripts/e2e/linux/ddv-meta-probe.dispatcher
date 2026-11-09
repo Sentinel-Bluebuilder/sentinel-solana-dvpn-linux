@@ -1,0 +1,25 @@
+#!/bin/bash
+# ─── NetworkManager dispatcher probe (test only, installed + removed by platform-el.sh) ───
+# GCE's dispatcher.d/google_hostname.sh asks the metadata server for the hostname on EVERY interface
+# `up`, the instant the tunnel link appears. If dvpnd's pref 8989 rule is not in place yet, that request
+# goes through the tunnel and the node's cloud renames this VM (Rocky 9.8, ddv16.29: L23 race).
+# "90-" sorts before "google_", so this runs at the same moment and records what it would get.
+# One summary line (name=…, read by platform-el) + the state the matrix lane asked for, all via logger.
+case "$1" in dvpn*|hy2*|tun*|ovpn*) ;; *) exit 0 ;; esac
+[ "$2" = up ] || exit 0
+# state first (fast), then the metadata request, so the state is what the request saw
+t=$(date +%T.%N)
+rules=$(ip -4 rule show | tr '\n' ';')
+tbl=$(ip -4 route show table 8990 2>&1 | tr '\n' ';')
+route=$(ip -4 route get 169.254.169.254 2>&1 | head -1)
+c=$(curl -s -m 2 -o /tmp/.ddv-meta-probe.$$ -w '%{local_ip} %{remote_ip}' -H 'Metadata-Flavor: Google' http://169.254.169.254/computeMetadata/v1/instance/name)
+n=$(cat /tmp/.ddv-meta-probe.$$ 2>/dev/null); rm -f /tmp/.ddv-meta-probe.$$
+logger -t ddv-meta-probe "iface=$1 name=${n:-none} at=$t curl=$c route=$route"
+{
+  echo "detail iface=$1 at=$t"
+  echo "rules: $rules"
+  echo "table8990: $tbl"
+  echo "getent metadata.google.internal: $(getent hosts metadata.google.internal | tr '\n' ';')"
+  echo "resolv: $(grep nameserver /etc/resolv.conf | tr '\n' ';')"
+} | logger -t ddv-meta-probe-detail
+exit 0
