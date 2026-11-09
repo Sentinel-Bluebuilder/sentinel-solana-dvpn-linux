@@ -99,7 +99,7 @@
     {
       "name": "sentinel-dvpnd",
       "title": "Sentinel dVPN daemon (sentinel-dvpnd)",
-      "version": "fork-cb33-4-final6.1",
+      "version": "fork-cb33-4-final6.5",
       "license": "Sentinel dVPN License",
       "licenseUrl": "https://github.com/sentinel-official/sentinel-solana/blob/main/LICENSE",
       "sourceUrl": "https://github.com/sentinel-official/sentinel-solana",
@@ -109,14 +109,14 @@
       "builds": {
         "x64": {
           "file": "sentinel-dvpnd-linux-amd64",
-          "sha256": "0fbd947e41ad641f43e76261f4c07ac2241d045152277d457748a61d5714570a"
+          "sha256": "7eb090ceba3f9c30762e8aaf4b669c32232c2082af67e8494ff1192039a1e628"
         },
         "arm64": {
           "file": "sentinel-dvpnd-linux-arm64",
-          "sha256": "a702e2b6d1f4de3a006dd7a89a57f5675677fa48dead1afe62b790ba1b6ad8cd"
+          "sha256": "81aed46a93211ea73a84cab4f865bf89293dbac416db5be30d0b202c2df5d2d8"
         }
       },
-      "note": "sentinel-dvpnd from fork tag fork-cb33-4-final6.1 (02b22fc), devnet ldflags (ProgramID J52dyXW3…, Mint Hen2LVP6…), go version go1.27.3 linux/amd64; repinned by scripts/repin-dvpnd.mjs from the stage MANIFEST. Was fork-cb33-4-final6."
+      "note": "sentinel-dvpnd from fork tag fork-cb33-4-final6.5 (90014b2), devnet ldflags (ProgramID J52dyXW3…, Mint Hen2LVP6…), go version go1.27.3 linux/amd64; repinned from the final6.5 stage SHA256SUMS. Was fork-cb33-4-final6.4."
     }
   ],
   "bundled": [
