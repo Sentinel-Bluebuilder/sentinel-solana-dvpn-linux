@@ -1,5 +1,7 @@
 # Sentinel dVPN for Linux (Solana devnet)
 
+AI agents: the command-line guide is https://github.com/Sentinel-Bluebuilder/agentic-privacy-solana-devnet/blob/main/AGENTS.md
+
 A pure peer-to-peer dVPN app on the Sentinel Solana devnet protocol. Pick any server and pay it
 directly, or subscribe to any plan. No accounts, no servers in the middle. Electron + React +
 TypeScript; sessions run through the `dvpnd` daemon; the app signs owner transactions itself.
