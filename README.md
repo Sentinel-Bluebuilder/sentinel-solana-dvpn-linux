@@ -30,9 +30,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 
 ## Install
 
-`<ver>` is the package version, written with a dot before the RC number: release `v0.3.0-rc2`
-ships `devnet-dvpn_0.3.0-rc.2_amd64.deb`, `devnet-dvpn-0.3.0-rc.2.x86_64.rpm` and so on. Copy
-the exact file name from the release page.
+`<ver>` is the package version, written with a dot before the RC number: release `v0.3.0-rc4`
+ships `devnet-dvpn_0.3.0-rc.4_amd64.deb`, `devnet-dvpn-0.3.0-rc.4.x86_64.rpm` and so on. Copy
+the exact file name from the release page. Installing over an earlier release keeps your wallet.
 
 ```bash
 # Debian / Ubuntu. On a fresh machine run `apt-get update` first: a new cloud image has no
@@ -49,6 +49,21 @@ devnet-dvpn help
 On Rocky / RHEL 9, OpenVPN comes from EPEL: `devnet-dvpn daemon repair-drivers --yes` enables it
 and installs it. AppImage: see [`docs/INSTALLER.md`](docs/INSTALLER.md) (Ubuntu 24.04 needs
 `libfuse2t64` and `--no-sandbox`).
+
+## Languages (0.3.0 RC4)
+
+Sentinel dVPN now speaks 15 languages besides English. Pick one from the language menu at the bottom left of the window (the first screen and Settings carry it too). The choice is kept after a restart.
+
+Chinese (Simplified), Chinese (Traditional), Spanish, Hindi, Portuguese, Russian, Kurdish (Kurmanji), Malay, French, Thai, Filipino, Tamil, Korean, Indonesian, German.
+
+RC4 also carries every fix of RC3: a second wallet on the same device no longer half-moves it (the switch is a step you confirm), Connect is refused before paying when the clock is off, and refunds list every device of your wallet.
+
+**Known limits**
+- Some status and error messages, and Linux's own set-up texts (the package and system prompts), still show in English.
+- Arabic, Persian, Urdu, Pashto and Sorani are inside the app but are switched on later: they need the right-to-left layout. Bengali and Telugu are switched on later too.
+- No native speaker has reviewed the translations. If a sentence is wrong, the English one is the reference.
+- Korean, Thai, Hindi and Tamil need a font that has those letters. A minimal install without one (a headless server image) draws empty boxes; install the Noto fonts of your system (`fonts-noto-cjk`, `fonts-noto-core` on Debian / Ubuntu).
+- Devnet only: test tokens with no value.
 
 ## First run (terminal or AI agent)
 
