@@ -4,12 +4,16 @@
 import type { Keypair } from '@solana/web3.js';
 
 export interface KeyStore {
-  /** 'keyfile' = a user-supplied key file used in place (read-only); 'keyring' = the CLI's own wallet in the desktop keyring. */
-  kind: 'safeStorage' | 'keyring' | 'keyfile' | 'memory';
+  /** 'keyfile' = a user-supplied key file used in place (read-only); 'dpapi' (Windows) / 'keyring' (macOS Keychain, Linux) / 'keystore' (Android Keystore) = the encrypted wallet. */
+  kind: 'safeStorage' | 'dpapi' | 'keyring' | 'keystore' | 'keyfile' | 'memory';
   exists(): boolean;
   load(): Keypair | null;
   save(kp: Keypair): void;
   remove(): void;
+  /** Q0567: the public address without decrypting (null = not known; then load() is used). */
+  address?(): string | null;
+  /** rc.4 E-18: the file a 'keyfile' store reads, so a missing one can be named. */
+  path?: string;
 }
 
 export interface Host {

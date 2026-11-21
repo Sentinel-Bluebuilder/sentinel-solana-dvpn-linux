@@ -25,6 +25,7 @@
 //   split-apply                        press Apply there and wait until the service restarted
 //   check=<css checkbox>:on|off        set any checkbox by clicking it
 //   fill=<aria-label>:<text>           type text into the input with that aria-label (e.g. Other device address)
+//   select=<aria-label>:<option value> choose an option in the <select> with that aria-label (e.g. DNS while connected:custom)
 //   nav=<sidebar label>                go to a screen
 //   click=<css selector>|text:<label>  click an element on the screen (button audit)
 //   count=<css selector>:<min>         at least <min> elements match
@@ -179,7 +180,9 @@ export async function runScenario(win: BrowserWindow, dir: string, steps: string
         }
         case 'proxy': {
           await nav('Split tunnelling'); await wait(1200);
-          const box = `[...document.querySelectorAll('label')].find((l) => /through the VPN now/i.test(l.textContent))?.querySelector('input')`;
+          // The live switch by its own label (the Windows app 1137d1d, DVPN-WIN KSM10: matching the first <label> naming the OS proxy hit
+          // the "Whole computer" row there). Linux matched /through the VPN now/, which only that switch's label carries.
+          const box = `document.querySelector('input[role="switch"][aria-label^="Send apps through the VPN now"]')`;
           const now = Boolean(await js(`!!(${box})?.checked`));
           if ((arg === 'on') !== now) await js(`(${box})?.click()`);
           await wait(2500);
@@ -294,6 +297,19 @@ export async function runScenario(win: BrowserWindow, dir: string, steps: string
           ok = ok && now === text;
           detail = ok ? `${label} = ${text.slice(0, 12)}…` : `input "${label}" ${now ? `holds ${now.slice(0, 12)}…` : 'not found'}`; break;
         }
+        case 'select': {
+          // select=<aria-label>:<option value> (Agent M KSM13: the DNS picker is a <select>). The LAST ':' splits,
+          // so a label may hold one. React owns the value: native setter, then 'change' (bubbles).
+          const at = arg.lastIndexOf(':');
+          const label = arg.slice(0, at);
+          const value = arg.slice(at + 1);
+          const q = `document.querySelector(${JSON.stringify(`select[aria-label="${label}"]`)})`;
+          ok = Boolean(await js(`(() => { const el = ${q}; if (!el || ![...el.options].some((o) => o.value === ${JSON.stringify(value)})) return false; Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set.call(el, ${JSON.stringify(value)}); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`));
+          await wait(400);
+          const now = String(await js(`${q}?.value ?? ''`));
+          ok = ok && now === value;
+          detail = ok ? `${label} = ${value}` : `select "${label}" ${now ? `holds ${now}` : 'not found or no such option'}`; break;
+        }
         case 'split-route': {
           // split-route=<address or range>:on|off  types it into "Address or range" and presses Add,
           // or presses its × to remove it. The last ':' splits, so IPv6 ranges work.
@@ -407,8 +423,9 @@ export async function runScenario(win: BrowserWindow, dir: string, steps: string
     } catch (err) {
       detail = `step crashed: ${(err as Error).message}`;
     }
-    const v = await visible().catch(() => []);
-    await shot(`s${String(i).padStart(2, '0')}-${name}`).catch(() => undefined);
+    // K-M4-5: these failures were swallowed; a step's record now says when its screen could not be read.
+    const v = await visible().catch((err: Error) => { console.warn(`[ui-scenario] step ${i} ${name}: reading the screen failed: ${err.message}`); return [`(screen not read: ${err.message})`]; });
+    await shot(`s${String(i).padStart(2, '0')}-${name}`).catch((err: Error) => console.warn(`[ui-scenario] step ${i} ${name}: screenshot failed: ${err.message}`));
     out.push({ step: raw, ok, detail, visible: v });
     fs.writeFileSync(path.join(dir, 'scenario.json'), JSON.stringify(out, null, 2));
   }

@@ -14,7 +14,7 @@ vi.mock('../../src/core/app/device-setup', async (orig) => ({
   ...(await orig<typeof import('../../src/core/app/device-setup')>()),
   sendDeviceSol: async (_s: unknown, _d: string, l: number) => { if (state.fail) throw new Error('rpc down\nstack'); state.sent.push(l); return 'sig1'; },
 }));
-const { topUpDeviceIfLow } = await import('../../src/main/services/device-topup');
+const { topUpDeviceIfLow, resetTopUp } = await import('../../src/main/services/device-topup');
 
 const wallet = (deviceLamports: number, ownerLamports: number) => ({ deviceLamports, ownerLamports }) as Parameters<typeof topUpDeviceIfLow>[0];
 
@@ -28,7 +28,7 @@ describe('deviceTopUpLamports', () => {
 });
 
 describe('topUpDeviceIfLow', () => {
-  beforeEach(() => { state.autoTopUpDevice = true; state.key = true; state.sent = []; state.fail = false; state.toasts = []; });
+  beforeEach(() => { resetTopUp(); state.autoTopUpDevice = true; state.key = true; state.sent = []; state.fail = false; state.toasts = []; });
   it('sends and tells the user', async () => {
     expect(await topUpDeviceIfLow(wallet(1_000_000, 1e9), 'dev')).toMatchObject({ done: true, lamports: 49_000_000 });
     expect(state.sent).toEqual([49_000_000]);

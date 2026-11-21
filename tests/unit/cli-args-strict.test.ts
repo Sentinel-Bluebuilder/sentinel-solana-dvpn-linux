@@ -1,3 +1,4 @@
+// Ported from linux-app 46754684 (builder-kb, 10-23).
 import { describe, it, expect } from 'vitest';
 import { parseArgs, whole, UsageError } from '../../src/cli/args';
 

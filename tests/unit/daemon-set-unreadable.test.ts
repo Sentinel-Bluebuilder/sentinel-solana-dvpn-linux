@@ -1,4 +1,4 @@
-// ─── daemon set with no readable service config (port of #31 732c03d) ───
+// ─── daemon set with no readable service config (port of the Windows app 732c03d) ───
 // Bad values are refused first (usage error, exit 3); then the error says whether the service was
 // never set up (no config file, ENOENT) or is installed but not readable as this user.
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -20,6 +20,9 @@ vi.mock('../../src/main/wallet/vault', () => ({ ownerAddress: () => null }));
 
 import { daemonCmd } from '../../src/cli/daemon-cmd';
 import { parseArgs, UsageError } from '../../src/cli/args';
+
+// rc9-e: daemon set refuses --kill-switch on from an SSH/RDP session; these tests are about something else.
+for (const k of ['SSH_CONNECTION', 'SSH_CLIENT', 'SSH_TTY', 'SESSIONNAME']) delete process.env[k];
 
 const out = { json: false, print: vi.fn() };
 const set = (...flags: string[]): Promise<void> => daemonCmd(parseArgs(['daemon', 'set', ...flags, '--yes']), out);

@@ -3,7 +3,7 @@
 // job now; `watch` runs the real scheduler for N seconds and checks every job kept to its
 // cadence (exit 1 if not), the end-to-end proof of polling.
 import type { Args } from './args';
-import { flag, num, UsageError } from './args';
+import { flag, whole, UsageError } from './args';
 import type { Out } from './commands';
 import { getSettings, updateSettings } from '../main/system/settings';
 import { POLL_JOBS, POLL_JOB_NAMES, DEFAULT_POLL, validPoll, type PollJob } from '../shared/poll';
@@ -55,8 +55,7 @@ export async function pollCmd(a: Args, o: Out): Promise<void> {
     o.print(runs.map((r) => `${r.name.padEnd(14)} ${r.ok ? 'ok ' : 'ERR'} ${String(r.ms).padStart(6)} ms${r.error ? `  ${r.error}` : ''}`).join('\n'), runs);
     if (runs.some((r) => !r.ok)) throw new Error(`${runs.filter((r) => !r.ok).map((r) => r.name).join(', ')} failed.`);
   } else if (sub === 'watch') {
-    const seconds = num(a, 'seconds', 75);
-    if (!Number.isInteger(seconds) || seconds < 10 || seconds > 3600) throw new UsageError('--seconds must be 10 to 3600');
+    const seconds = whole(a, 'seconds', 75, 10, 3600);
     const hidden = flag(a, 'hidden');
     const runs: JobRun[] = [];
     const off = onJobRun((r) => {
@@ -71,8 +70,8 @@ export async function pollCmd(a: Args, o: Out): Promise<void> {
     off();
     setHidden(false);
     // ip runs only while connected (once when idle); nodes skips while its list on disk is fresh;
-    // session skips when no service answers or a session is already shown (no service in the
-    // local tier → "runs 0/3 never ran", found on arm64 Debian 12 after the #31 port).
+    // session skips when no service answers or a session is already shown (the Linux app fd44948: "runs 0/3
+    // never ran" in the local tier on arm64 Debian 12).
     const jobs = jobInfo().map((j) => ({ name: j.name, everyMs: j.everyMs, whenHidden: j.whenHidden }));
     const res = checkCadence(jobs, runs.filter((r) => r.at >= start), Date.now() - start, hidden, 1000, ['nodes', 'ip', 'session']);
     o.print(['', `Cadence over ${seconds} s${hidden ? ' (window hidden)' : ''}:`, ...res.map((r) => `${r.ok ? 'ok  ' : 'FAIL'} ${r.name.padEnd(14)} runs ${r.runs}/${r.maxRuns}  ${r.why}`)].join('\n'), { runs, result: res });

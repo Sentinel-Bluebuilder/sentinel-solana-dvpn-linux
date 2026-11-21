@@ -11,8 +11,13 @@ import react from '@vitejs/plugin-react';
 
 const EXTERNALS_MAIN = ['electron', 'bufferutil', 'utf-8-validate'];
 
+// K-M4-5: the UI test hooks (src/main/dev/ui-*) are built in only when DVPN_DEV_HOOKS is '1' (unpackaged runs) or
+// 'packaged' (a VM UI-lane test installer). Release builds leave it unset: the hooks are not in out/main.
+const DEV_HOOKS = ['1', 'packaged'].includes(process.env.DVPN_DEV_HOOKS ?? '') ? String(process.env.DVPN_DEV_HOOKS) : '';
+
 export default defineConfig({
   main: {
+    define: { __DVPN_DEV_HOOKS__: JSON.stringify(DEV_HOOKS) },
     // Anchor's ESM build keeps bare require("./workspace.js") calls the bundler cannot follow;
     // its CJS build (what Node's require() loads) bundles cleanly.
     resolve: {

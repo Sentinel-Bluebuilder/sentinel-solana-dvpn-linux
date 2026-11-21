@@ -63,8 +63,9 @@ function cliTests() {
   };
 }
 
+// Sorted: NTFS lists names in order, ext4 in hash order, so the doc must not depend on the filesystem (builder-kb 10-24).
 function walk(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+  return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
 }
 const RENDERER = walk('src/renderer/src').filter((f) => /\.tsx?$/.test(f)).map((f) => read(f)).join('\n');
 const rendererUses = (key) => new RegExp(`IPC\\.${key}\\b`).test(RENDERER);

@@ -2,7 +2,7 @@
 // close_channel (voucher) → withdraw_user_balance → close_grant for the scratch device.
 // Each step is skipped when already done, so a re-run is safe.
 //
-//   TEST_KEYFILE=…/sentinel-solana/keys/devnet/client.json npx vitest run tests/devnet/p0-settle.test.ts
+//   TEST_KEYFILE=<your devnet key file> npx vitest run tests/devnet/p0-settle.test.ts
 import { describe, it, expect } from 'vitest';
 import { PublicKey } from '@solana/web3.js';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

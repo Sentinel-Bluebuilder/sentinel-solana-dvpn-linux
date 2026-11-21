@@ -7,14 +7,14 @@ import { ksState } from '../../src/core/session/ks-view';
 
 describe('Reconnecting copy vs the kill switch', () => {
   it('kill switch off: says traffic goes direct, claims no block, keeps Stop and the daemon detail', () => {
-    const v = reconnectingView(viewFor('reconnecting', 'The daemon is retrying the connection.'), true);
+    const v = reconnectingView(viewFor('reconnecting', 'The VPN service is reconnecting to the server.'), true);
     expect(v.title).toBe('Reconnecting… traffic is going direct (kill switch is off)');
     expect(v.title).not.toMatch(/block/i);
     expect(v.canStop).toBe(true);
-    expect(v.detail).toBe('The daemon is retrying the connection.');
+    expect(v.detail).toBe('The VPN service is reconnecting to the server.');
   });
   it('negative controls: kill switch on keeps the blocked title; other phases are untouched', () => {
-    expect(reconnectingView(viewFor('reconnecting'), false).title).toBe(RECONNECTING_TITLE.blocked);
+    expect(reconnectingView(viewFor('reconnecting'), false).title).toBe(RECONNECTING_TITLE().blocked);
     expect(viewFor('reconnecting').title).toBe('Reconnecting — internet blocked to protect you');
     expect(reconnectingView(viewFor('connected'), true).title).toBe('Protected');
   });

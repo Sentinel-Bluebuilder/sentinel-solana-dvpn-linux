@@ -10,12 +10,14 @@ import { toBaseUnits } from '../../core/chain/amounts';
 import { signAndSend } from '../../core/app/signer';
 import { describeInstructionError } from '../../core/chain/errors';
 import { daemon, daemonInfo } from '../daemon/manager';
-import { ownerAddress, ownerSigner } from '../wallet/vault';
+import { serviceView } from '../../core/daemon/service-state';
+import { noWallet, ownerAddress, ownerSigner } from '../wallet/vault';
 import { listHistory } from './history';
 import { toLive } from './connection';
 import { refreshWallet } from './wallet';
 import type { LiveSession } from '../../shared/types';
 import { log } from '../logger';
+import { tr } from '../../shared/i18n';
 
 export interface DaemonLists { sessions: LiveSession[]; channels: DaemonChannel[]; tickets: DaemonTicket[]; error: string | null }
 
@@ -29,9 +31,9 @@ export async function withChainStatus(chans: DaemonChannel[]): Promise<DaemonCha
   if (!owner) return chans;
   try {
     const onChain = new Map((await channelsByOwner(owner)).map((c) => [String(c.address), c]));
-    // Q0425: the service lists only the deposits ITS device opened (its local history). One this wallet
-    // opened from an earlier device home (wallet switch, reinstall) is still the user's money on chain:
-    // list it too, from the chain account.
+    // Q0425 (the Linux app TLX 0.1.15): the service lists only the deposits ITS device opened (its local history). One this wallet
+    // opened from an earlier device home (wallet switch, reinstall) is still the user's money on chain: list it too,
+    // from the chain account, so it can be refunded.
     const known = new Set(chans.map((c) => c.address));
     const chainOnly: DaemonChannel[] = [...onChain.values()].filter((ch) => !known.has(String(ch.address))).map((ch) => {
       const s = Number(ch.status);
@@ -51,10 +53,10 @@ export async function withChainStatus(chans: DaemonChannel[]): Promise<DaemonCha
       const s = Number(ch.status);
       const status = s === CHANNEL_STATUS_OPEN ? 'open' : s === CHANNEL_STATUS_CLOSING ? 'closing' : c.status;
       const escrow = BigInt(String(ch.escrow ?? '0')) > BigInt(c.escrow || '0') ? String(ch.escrow) : c.escrow;
-      // dvpnd cf4c372 carried deposits from an older build over with node '' and mode 0 (seen on
-      // ddv-linux-1 after the 2026-10-21 upgrade): the chain account still has both.
-      if (!c.node && ch.node) return { ...c, status, escrow, node: String(ch.node), mode: Number(ch.mode ?? c.mode) };
-      return { ...c, status, escrow };
+      // dvpnd cf4c372 lists deposits opened by the older build with node "" and mode 0 (seen by the Linux app).
+      const node = c.node || (ch.node ? String(ch.node) : '');
+      const mode = Number(c.mode) || Number(ch.mode) || 0;
+      return { ...c, status, escrow, node, mode };
     }), ...chainOnly];
   } catch (err) {
     log.warn('chain status of deposits unavailable; showing the VPN service view', { err: (err as Error).message });
@@ -63,7 +65,9 @@ export async function withChainStatus(chans: DaemonChannel[]): Promise<DaemonCha
 }
 
 export async function daemonLists(): Promise<DaemonLists> {
-  if (!daemonInfo().reachable) return { sessions: [], channels: [], tickets: [], error: 'The VPN service is not running.' };
+  // Row 126: the same sentence as every other screen for the state the service is in.
+  const d = daemonInfo();
+  if (!d.reachable) return { sessions: [], channels: [], tickets: [], error: d.service?.sentence || d.error || serviceView('stopped').sentence };
   try {
     const [sessions, raw, tickets] = await Promise.all([daemon().listSessions(), daemon().listChannels(), daemon().listTickets()]);
     const channels = await withChainStatus(raw);
@@ -109,15 +113,15 @@ export function recentNodes(limit = 8): string[] {
 /** Add tDVPN to a deposit that is still open (F8.7) so a session can keep using it. */
 export async function fundChannel(channel: string, amountTdvpn: string): Promise<Result<string>> {
   const owner = ownerAddress();
-  if (!owner) return { ok: false, error: 'Set up a wallet first.', code: 'no-wallet' };
+  if (!owner) return { ok: false, ...noWallet() };
   let amount: string;
   try { amount = toBaseUnits(amountTdvpn); } catch (err) { return { ok: false, error: (err as Error).message, code: 'invalid-amount' }; }
-  if (BigInt(amount) <= 0n) return { ok: false, error: 'Enter an amount.', code: 'invalid-amount' };
+  if (BigInt(amount) <= 0n) return { ok: false, error: tr('Enter an amount.'), code: 'invalid-amount' };
   // Read the one channel: a by-owner list can lag behind a channel opened seconds ago.
   const mine = await channelByPda(channel);
-  if (!mine) return { ok: false, error: 'That deposit was not found on the network (it may already be closed).', code: 'not-found' };
-  if (String(mine.owner) !== owner) return { ok: false, error: 'That deposit is not yours.', code: 'not-owner' };
-  if (Number(mine.status) !== CHANNEL_STATUS_OPEN) return { ok: false, error: 'That deposit is closing; it cannot be topped up.', code: 'not-open' };
+  if (!mine) return { ok: false, error: tr('That deposit was not found on the network (it may already be closed).'), code: 'not-found' };
+  if (String(mine.owner) !== owner) return { ok: false, error: tr('That deposit is not yours.'), code: 'not-owner' };
+  if (Number(mine.status) !== CHANNEL_STATUS_OPEN) return { ok: false, error: tr('That deposit is closing; it cannot be topped up.'), code: 'not-open' };
   try {
     const r = await signAndSend(ownerSigner(), [await fundChannels({ owner, channels: [{ address: channel, amount }] })], 'fund_channels');
     await refreshWallet();

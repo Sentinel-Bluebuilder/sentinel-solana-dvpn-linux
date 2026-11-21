@@ -45,6 +45,7 @@ export const CLI_FOR_IPC: Record<IpcChannel, string | { none: string }> = {
   [IPC.WALLET_LOGOUT]: 'wallet logout',
   [IPC.DAEMON_SETTINGS_APPLY]: 'daemon set',
   [IPC.DAEMON_INIT]: 'daemon init',
+  [IPC.SERVICE_UNINSTALL]: 'daemon uninstall',
   [IPC.RESTORE_NETWORK]: 'daemon restore-network',
   [IPC.CONNECT]: 'connect',
   [IPC.DISCONNECT]: 'disconnect',
@@ -62,8 +63,13 @@ export const CLI_FOR_IPC: Record<IpcChannel, string | { none: string }> = {
   [IPC.NODE_TEST_HISTORY]: 'test history',
   [IPC.NODE_TEST_STOP]: 'test stop',
   [IPC.APPS_LIST]: 'split apps',
+  [IPC.SPLIT_GET]: 'split show',
+  [IPC.SPLIT_APPS]: 'split apps',
+  [IPC.SPLIT_SET]: 'split set',
+  [IPC.SPLIT_ROUTES_SET]: 'split routes',
   [IPC.DNS_PROBE]: 'daemon dns-check',
-  [IPC.APPS_PICK]: { none: 'file picker; the CLI takes the .exe path in daemon set --split-apps' },
+  [IPC.DISCARD_SETUP]: 'device discard-setup', // E-55: Diagnostics' "Remove half-finished setup"
+  [IPC.APPS_PICK]: { none: 'file picker; the CLI takes the app\'s program path (split apps lists them) in daemon set --split-apps' },
 };
 
 /** IPC payload variants that map to a second CLI command (same channel, different action). */

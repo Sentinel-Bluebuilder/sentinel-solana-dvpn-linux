@@ -22,6 +22,7 @@ run('node', ['scripts/fetch-deps.mjs', '--arch', ARCH, ...(args.includes('--offl
 for (const f of fs.readdirSync('resources/scripts')) fs.chmodSync(path.join('resources/scripts', f), 0o755);
 if (!args.includes('--skip-tests')) { run('npm', ['run', 'typecheck']); run('npm', ['test']); }
 npx(['electron-vite', 'build']);
+run('node', ['scripts/check-dev-hooks-payload.mjs']); // K-M4-5 (rc9-c2): a release never carries the UI test hooks
 run('node', ['scripts/build-cli.mjs']);
 fs.chmodSync('build/cli/devnet-dvpn', 0o755);
 // --targets deb,rpm,AppImage,pacman: only those (default = the list in electron-builder.yml)
@@ -32,6 +33,8 @@ npx(['electron-builder', '--linux', ...targets, `--${ARCH}`, '--publish', 'never
 
 // Build checklist: no inline RPC api-key anywhere in the payload, binaries included (scripts/payload-secret-scan.mjs)
 run('node', ['scripts/payload-secret-scan.mjs', path.join('dist', ARCH === 'x64' ? 'linux-unpacked' : `linux-${ARCH}-unpacked`), 'build/linux']);
+// rc.9 (the agent kit): every binary in the app is an ELF for this arch (rc.8 shipped 3x node_gyp_bins/python3 + Windows / macOS add-ons)
+run('node', ['scripts/check-payload-arch.mjs', path.join('dist', ARCH === 'x64' ? 'linux-unpacked' : `linux-${ARCH}-unpacked`), ARCH]);
 
 // Every AppImage: swap in the static runtime (arm64's bundled one needs libz.so; x64's dlopens libfuse.so.2, absent on stock Ubuntu 24.04, Q0382; scripts/appimage-runtime.mjs)
 const RT = JSON.parse(fs.readFileSync('build/deps.lock.json', 'utf8')).appimageRuntime?.[ARCH];

@@ -12,6 +12,7 @@ import { adoptRunningSession, checkLeftoverBlock, connect } from './connection';
 import { nodeViews, refreshNodes } from './nodes';
 import { refreshWallet } from './wallet';
 import { pickQuickNode } from '../../shared/quick-pick';
+import { costPreview } from '../../core/pricing/cost';
 import { log } from '../logger';
 
 let tried = false;
@@ -35,8 +36,12 @@ export async function maybeAutoConnect(): Promise<void> {
     const node = pickQuickNode(list, s.preferredCountry);
     if (!node) { log.info('auto-connect: no online server'); return; }
     const basis = s.defaultBasis === 'per_hour' && BigInt(node.pricePerHour || '0') > 0n ? 'per_hour' : BigInt(node.pricePerGb || '0') > 0n ? 'per_gb' : 'per_hour';
-    log.info('auto-connect', { node: node.address, basis });
-    await connect({ node: node.address, basis, units: basis === 'per_hour' ? s.defaultHours : s.defaultGb, confirmed: true });
+    const units = basis === 'per_hour' ? s.defaultHours : s.defaultGb;
+    // CODE-AUDIT L-37: nobody sees a price at launch, so the deposit is held to the one in the server list the
+    // user last saw (the same refusal as the Connect button, U-13): a price raised since then is not paid.
+    const shownEscrow = costPreview(node, basis, units).escrow;
+    log.info('auto-connect', { node: node.address, basis, shownEscrow });
+    await connect({ node: node.address, basis, units, shownEscrow, confirmed: true });
   } catch (err) {
     log.warn('auto-connect skipped', { err: (err as Error).message });
   }

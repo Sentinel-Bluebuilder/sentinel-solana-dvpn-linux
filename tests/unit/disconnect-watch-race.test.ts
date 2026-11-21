@@ -16,7 +16,7 @@ vi.mock('../../src/main/app-state', () => ({
     if ('session' in p) seen.session = p.session;
     if (p.conn) { seen.phase = p.conn.phase; seen.phases.push(p.conn.phase); }
   },
-  setSplitInEffect: vi.fn(),
+  setSplitInEffect: vi.fn(), setWholeDeviceInEffect: vi.fn(),
   toast: vi.fn(),
 }));
 const closed = { id: 's1', node: 'N', service: 'wireguard', status: 'closed', channel: '' };
@@ -39,7 +39,7 @@ vi.mock('../../src/main/services/history', () => ({ recordStart: vi.fn(), record
 vi.mock('../../src/main/services/settlement', () => ({ settleChannelSoon: vi.fn(), settlesOnEnd: (r: string) => !/switching servers/i.test(r) }));
 vi.mock('../../src/main/system/dns-check', () => ({ dnsReallyLeftOver: async () => false, flushDnsCache: vi.fn() }));
 vi.mock('../../src/core/chain/rpc', () => ({ getRpcUrls: () => [], resetRpcTransport: vi.fn(), onRpcRetry: () => () => undefined }));
-vi.mock('../../src/main/daemon/settings', () => ({ getDaemonSettings: () => ({ settings: { dnsServers: [] } }), splitForSession: vi.fn() }));
+vi.mock('../../src/main/daemon/settings', () => ({ serviceUsesTun: () => false, getDaemonSettings: () => ({ settings: { dnsServers: [] } }), splitForSession: vi.fn() }));
 
 const { disconnect, adoptRunningSession } = await import('../../src/main/services/connection');
 

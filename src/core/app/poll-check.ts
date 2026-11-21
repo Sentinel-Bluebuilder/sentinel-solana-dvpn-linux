@@ -4,6 +4,7 @@
 //   - at least once if it is due in the window (it runs at start)
 //   - not at all while hidden, unless it is allowed to run hidden
 
+import { tr } from '../../shared/i18n';
 export interface CadenceJob { name: string; everyMs: number; whenHidden: boolean }
 export interface CadenceRun { name: string; at: number }
 export interface CadenceResult { name: string; runs: number; maxRuns: number; minGapMs: number | null; ok: boolean; why: string }
@@ -16,8 +17,8 @@ export function checkCadence(jobs: CadenceJob[], runs: CadenceRun[], windowMs: n
     const maxRuns = Math.floor(windowMs / j.everyMs) + 1;
     const base = { name: j.name, runs: at.length, maxRuns, minGapMs: minGap };
     if (hidden && !j.whenHidden) return { ...base, ok: at.length === 0, why: at.length ? 'ran while hidden' : 'paused while hidden' };
-    if (minGap !== null && minGap < j.everyMs - tickMs) return { ...base, ok: false, why: `ran ${minGap} ms apart, cadence ${j.everyMs} ms` };
-    if (at.length > maxRuns) return { ...base, ok: false, why: `ran ${at.length} times, at most ${maxRuns} expected` };
+    if (minGap !== null && minGap < j.everyMs - tickMs) return { ...base, ok: false, why: tr('ran {minGap} ms apart, cadence {everyMs} ms', { minGap, everyMs: j.everyMs }) };
+    if (at.length > maxRuns) return { ...base, ok: false, why: tr('ran {length} times, at most {maxRuns} expected', { length: at.length, maxRuns }) };
     // Some jobs skip on purpose (nodes: the list on disk is still fresh); those may not run.
     if (at.length === 0 && !skip.includes(j.name)) return { ...base, ok: false, why: 'never ran' };
     return { ...base, ok: true, why: at.length ? 'on cadence' : 'skipped (data still fresh)' };

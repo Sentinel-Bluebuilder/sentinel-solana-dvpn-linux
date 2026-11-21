@@ -1,5 +1,5 @@
 // ─── The button under a failed or stopped connect (Home + tray) ───
-// #31 2026-10-22: 'cancelled' and 'port-in-use' got their own copy; each needs the right next step.
+// the Windows app 2026-10-22: 'cancelled' and 'port-in-use' got their own copy; each needs the right next step.
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import { connectActionButton } from '../../src/shared/connect-action';

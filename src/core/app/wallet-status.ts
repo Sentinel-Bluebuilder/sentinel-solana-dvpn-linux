@@ -9,6 +9,7 @@ import { ata, pda } from '../chain/program';
 import { PERMS_CLIENT } from '../chain/idl';
 import { DEVICE_MIN_LAMPORTS } from '../session/setup-gate';
 import { grantOf, userByOwner } from '../chain/accounts';
+import { tr } from '../../shared/i18n';
 
 export interface WalletStatus {
   owner: string;
@@ -23,6 +24,8 @@ export interface WalletStatus {
   grant: { allowance: string; rentPayer: string; permissions: number } | null;
   deviceLamports: number;
   ready: boolean;          // grant + delegate + device SOL all present
+  ownerAta?: boolean;      // the owner's tDVPN token account exists (a new wallet has none)
+  needsPermission?: boolean; // no grant with client rights, or no token permission: set up at first connect
   at: number;
 }
 
@@ -56,9 +59,11 @@ export async function readWalletStatus(owner: string, device: string | null): Pr
     grant: grant ? { allowance: String(grant.allowance), rentPayer: String(grant.rentRecipient), permissions: Number(grant.permissions) } : null,
     deviceLamports,
     ready: false,
+    ownerAta: !!tokenAcct,
     at: Date.now(),
   };
-  status.ready = !!status.grant && (status.grant.permissions & PERMS_CLIENT) === PERMS_CLIENT && BigInt(status.delegated) > 0n && status.deviceLamports >= DEVICE_MIN_LAMPORTS;
+  status.needsPermission = !status.grant || (status.grant.permissions & PERMS_CLIENT) !== PERMS_CLIENT || BigInt(status.delegated) === 0n;
+  status.ready = !status.needsPermission && status.deviceLamports >= DEVICE_MIN_LAMPORTS;
   return status;
 }
 
@@ -66,8 +71,8 @@ export async function readWalletStatus(owner: string, device: string | null): Pr
 export function lowFundsWarnings(w: WalletStatus): Array<{ key: string; message: string }> {
   if (!w.ready) return [];
   const out: Array<{ key: string; message: string }> = [];
-  if (w.deviceLamports < 10_000_000) out.push({ key: 'device-sol', message: 'The device is low on SOL for fees. Top it up in Wallet.' });
-  if (BigInt(w.ownerTdvpn) + BigInt(w.userBalance) < 1_000_000n) out.push({ key: 'tdvpn', message: 'Your wallet has under 1 tDVPN. Deposits will fail until you add more.' });
-  if (w.grant && BigInt(w.grant.allowance) < 1_000_000n) out.push({ key: 'allowance', message: 'The device spending limit is almost used up. Raise it in Wallet.' });
+  if (w.deviceLamports < 10_000_000) out.push({ key: 'device-sol', message: tr('The device is low on SOL for fees. Top it up in Wallet.') });
+  if (BigInt(w.ownerTdvpn) + BigInt(w.userBalance) < 1_000_000n) out.push({ key: 'tdvpn', message: tr('Your wallet has under 1 tDVPN. Deposits will fail until you add more.') });
+  if (w.grant && BigInt(w.grant.allowance) < 1_000_000n) out.push({ key: 'allowance', message: tr('The device spending limit is almost used up. Raise it in Wallet.') });
   return out;
 }

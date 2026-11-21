@@ -96,7 +96,9 @@ export async function driversStatus(): Promise<DriversView> {
 }
 
 /** Install or repair every missing driver (one administrator prompt). */
-export async function repairDrivers(): Promise<{ ok: boolean; error?: string; view: DriversView }> {
+/** `onLine`: progress lines for the CLI/app (shared signature; macOS streams Homebrew). Linux runs one root step and says so once. */
+export async function repairDrivers(onLine?: (line: string) => void): Promise<{ ok: boolean; error?: string; view: DriversView }> {
+  onLine?.('installing with the system package manager (one administrator prompt)');
   const r = await runElevated(scriptPath('install-deps.sh'), {}, 900_000);
   const view = await driversStatus();
   if (r.status === 'ok') return { ok: true, view };
@@ -104,7 +106,7 @@ export async function repairDrivers(): Promise<{ ok: boolean; error?: string; vi
 }
 
 /**
- * Windows-only problem (OpenVPN's Wintun adapter, UPSTREAM-GAPS #27): on Linux OpenVPN creates
+ * Windows-only problem (OpenVPN's Wintun adapter, UPSTREAM-GAPS another project): on Linux OpenVPN creates
  * its own tun device per session, so there is nothing to re-create. Kept so callers match.
  */
 export async function recreateOpenvpnAdapter(): Promise<{ ok: boolean; detail: string }> {

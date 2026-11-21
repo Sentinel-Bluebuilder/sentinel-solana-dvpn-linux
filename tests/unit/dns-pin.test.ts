@@ -84,7 +84,7 @@ describe('dns pin', () => {
   // Q0390 (Azure India, TLX2 10-30): the RPC host resolves by location; through the tunnel the app pinned the
   // US address, the held block admits only the direct-path one. Keep both, newest first, and hand out all.
   it('keeps the recent distinct answers, newest first (Q0390)', () => {
-    const a = { address: '198.51.100.93', family: 4 }, b = { address: '203.0.113.49', family: 4 };
+    const a = { address: '74.63.203.93', family: 4 }, b = { address: '208.115.212.49', family: 4 };
     expect(mergeAnswers([b], [a])).toEqual([b, a]);
     expect(mergeAnswers([a], [b, a])).toEqual([a, b]);
     const many = Array.from({ length: 9 }, (_, i) => ({ address: `10.0.0.${i}`, family: 4 }));

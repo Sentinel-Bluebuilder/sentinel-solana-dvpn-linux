@@ -17,6 +17,9 @@ source "$(dirname "$(readlink -f "$0")")/_lib.sh"
 parse_args "$@"
 CHECK="${ARG[CheckOnly]:-0}"
 OUT="${ARG[OutDir]:-/var/lib/devnet-dvpn}"
+# D7 (AUDIT-FINAL the Linux app): the root install writes its log and report into OUT through any link, and --OutDir is the
+# caller's: only the user-run --CheckOnly may choose the folder; as root it is always /var/lib/devnet-dvpn.
+[ "$CHECK" = 1 ] || OUT=/var/lib/devnet-dvpn
 # Package manager of this system: apt | dnf | pacman | '' (unknown: check-only report still works)
 PM=''
 for p in apt-get:apt dnf:dnf pacman:pacman; do command -v "${p%%:*}" >/dev/null && { PM=${p#*:}; break; }; done

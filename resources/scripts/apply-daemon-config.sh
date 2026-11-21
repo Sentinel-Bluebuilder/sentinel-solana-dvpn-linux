@@ -11,17 +11,35 @@ source "$(dirname "$(readlink -f "$0")")/_lib.sh"
 parse_args "$@"
 STAGED="${ARG[Staged]:-}"; HOME_DIR="${ARG[DaemonHome]:-}"; SERVICE="${ARG[Service]:-sentinel-dvpnd@c0}"
 under "$HOME_DIR" "$STATE_ROOT" || die "daemon home must be under $STATE_ROOT"
-[[ "$SERVICE" =~ ^[a-z][a-z0-9-]{0,40}(@[cnp][0-9]{1,9})?$ ]] || die "bad service name $SERVICE"
-SRC="$STAGED/config.toml"; DST="$HOME_DIR/config.toml"
-[ -f "$SRC" ] && [ ! -L "$SRC" ] || die "missing staged file $SRC"
+# D5 (AUDIT-FINAL the Linux app): the helper runs as root for any process in the polkit keep window: only our own unit.
+[ "$SERVICE" = sentinel-dvpnd@c0 ] || die "bad service name $SERVICE"
+# L32-2 (port of the macOS app M33-1): --Staged is the login's own folder, read with that login's rights
+USER_NAME="${ARG[User]:-}"
+[ -n "$USER_NAME" ] && id -u -- "$USER_NAME" >/dev/null 2>&1 || die 'the login (--User) is required'
+check_caller_user "$USER_NAME" || die "--User $USER_NAME is not the account that asked"
+user_home_real="$(real_home "$USER_NAME")"; [ -n "$user_home_real" ] || die "no home folder for $USER_NAME"
+staged_real="$(cd -P -- "$STAGED" 2>/dev/null && pwd -P)" || die "staged folder not found: $STAGED"
+case "$staged_real" in "$user_home_real"/?*) ;; *) die "staged folder $STAGED is not under $USER_NAME's home $user_home_real" ;; esac
+SRC="$staged_real/config.toml"; DST="$HOME_DIR/config.toml"
 [ -f "$DST" ] || die "daemon home has no $DST"
-[ "$(stat -c %s "$SRC")" -le 65536 ] || die "staged file too large: $SRC"
+# D3 (AUDIT-FINAL the Linux app, port of the macOS app C2): the staged folder is the user's. The old step checked `[ ! -L src ]`, stopped
+# the service, and only then read src: a swap to a link in that window put a root-only file into config.toml and its
+# user-readable mirror. Copy it with cp -P (a link stays a link) into a root-owned folder first, refuse a link, and
+# read only the snapshot from here on.
+snap="$(mktemp -d "$HOME_DIR/.staged.XXXXXX")" || die 'could not make a folder for the staged settings'
+trap 'rm -rf -- "$snap"' EXIT
+[ ! -L "$SRC" ] && [ -f "$SRC" ] || die "staged file is not a plain file: $SRC"
+[ "$(stat -c %h -- "$SRC")" = 1 ] || die "staged file has another name (hard link); refused: $SRC"
+as_user "$USER_NAME" head -c 65537 -- "$SRC" > "$snap/config.toml" 2>/dev/null || die "missing staged file $SRC"
+if [ -L "$snap/config.toml" ] || [ ! -f "$snap/config.toml" ]; then die "staged file is not a plain file: $SRC"; fi
+[ "$(stat -c %s "$snap/config.toml")" -le 65536 ] || die "staged file too large: $SRC"
 cp -p "$DST" "$DST.bak"
 has_unit=0; [ "$(systemctl show -p LoadState --value "$SERVICE" 2>/dev/null)" = loaded ] && has_unit=1
 [ $has_unit = 1 ] && systemctl stop "$SERVICE"
-# cat onto the existing file keeps its owner and mode (root 0600, what cb33 expects)
-cat "$SRC" > "$DST" || die "could not write $DST"
-restore() { cat "$DST.bak" > "$DST"; refresh_mirror "$HOME_DIR"; systemctl restart "$SERVICE"; }
+# atomic_write keeps the existing file's owner and mode (root 0600, what cb33 expects) and never leaves
+# a cut file if the machine stops mid-write
+atomic_write "$snap/config.toml" "$DST" || die "could not write $DST"
+restore() { atomic_write "$DST.bak" "$DST"; refresh_mirror "$HOME_DIR"; systemctl restart "$SERVICE"; }
 if [ $has_unit = 1 ]; then
   ok=0
   up() { for _ in $(seq 1 150); do [ -S "$HOME_DIR/daemon.sock" ] && systemctl is-active -q "$SERVICE" && return 0; sleep 0.2; done; return 1; }

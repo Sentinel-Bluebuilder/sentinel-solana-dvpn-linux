@@ -13,8 +13,8 @@ describe('blocked-internet advice', () => {
     expect(blockedAdvice('persist')).toMatch(/daemon restore-network/);
     expect(blockedAdvice('persist')).not.toMatch(/"disconnect" gives/);
   });
-  it("an old 'on' config keeps pointing at disconnect", () => {
-    expect(blockedAdvice('on')).toMatch(/"disconnect" gives the internet back/);
+  it("AUD-2 M9: an old 'on' config points at restore-network (an agent's disconnect has nothing to stop)", () => {
+    expect(blockedAdvice('on')).toMatch(/daemon restore-network" to get the internet back/);
   });
 });
 

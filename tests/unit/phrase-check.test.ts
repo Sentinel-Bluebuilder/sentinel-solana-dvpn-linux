@@ -41,8 +41,8 @@ describe('recovery-phrase backup check (Q0297)', () => {
 describe('phrase card wiring (Q0297)', () => {
   const src = readFileSync(join(__dirname, '../../src/renderer/src/screens/Onboarding.tsx'), 'utf8');
   it('"I saved it" opens the check instead of continuing', () => {
-    expect(src).not.toMatch(/onClick=\{onDone\}>I saved it/);
-    expect(src).toMatch(/setChecking\(true\);\s*\}\}>I saved it/);
+    expect(src).not.toMatch(/onClick=\{onDone\}>(\{tr\(')?I saved it/);
+    expect(src).toMatch(/setChecking\(true\);\s*\}\}>\{tr\('I saved it'\)\}/);
   });
   it('only an all-correct check continues', () => {
     expect(src).toMatch(/const bad = wrongPhraseWords\(phrase, positions, answers\); if \(bad\.length\) setWrong\(bad\); else onDone\(\);/);

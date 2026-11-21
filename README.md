@@ -11,6 +11,8 @@ Every app function is also a command (`devnet-dvpn …`).
 
 Latest release: [**Releases**](https://github.com/Sentinel-Bluebuilder/sentinel-solana-dvpn-linux/releases/latest)
 
+Source: this repository is the source of v0.3.0 (built from commit `a95a3346`).
+
 | Distro family | x86_64 | arm64 |
 |---|---|---|
 | Debian / Ubuntu | `devnet-dvpn_<ver>_amd64.deb` | `devnet-dvpn_<ver>_arm64.deb` |
@@ -47,7 +49,7 @@ devnet-dvpn help
 ```
 
 On Rocky / RHEL 9, OpenVPN comes from EPEL: `devnet-dvpn daemon repair-drivers --yes` enables it
-and installs it. AppImage: see [`docs/INSTALLER.md`](docs/INSTALLER.md) (Ubuntu 24.04 needs
+and installs it. AppImage: make it executable (`chmod +x`) and run it (Ubuntu 24.04 needs
 `libfuse2t64` and `--no-sandbox`).
 
 ## Languages (0.3.0 RC4)
@@ -118,10 +120,7 @@ including [`docs/known-issues-rc1.md`](https://github.com/Sentinel-Bluebuilder/s
 
 | doc | what it is |
 |---|---|
-| [`docs/INSTALLER.md`](docs/INSTALLER.md) | .deb, .rpm, Arch, AppImage, hooks |
 | [`docs/CLI.md`](docs/CLI.md) | every command |
-| [`docs/LINUX-PORT.md`](docs/LINUX-PORT.md) | each Windows piece and what replaced it on Linux |
-| [`docs/LINUX-PARITY.md`](docs/LINUX-PARITY.md) | feature parity checklist |
 | [`CHANGELOG.md`](CHANGELOG.md) | release history |
 
 ## License

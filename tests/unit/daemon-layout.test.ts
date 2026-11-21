@@ -69,7 +69,7 @@ const SETTINGS: DaemonSettings = {
   killSwitch: 'on', allowLan: true, dnsServers: ['9.9.9.9'], dnsMode: 'resolvconf', basis: 'per_hour',
   escrow: '5000000', prepayBytes: '0', prepaySeconds: '120',
   rpcUrl: 'https://rpc.example.org', rpcWsUrl: 'wss://rpc.example.org',
-  split: { mode: 'exclude', apps: ['/usr/bin/firefox'], routes: ['10.0.0.0/8'] },
+  split: { mode: 'exclude', apps: ['/Applications/Firefox.app/Contents/MacOS/firefox'], routes: ['10.0.0.0/8'] },
 };
 
 describe('the one instance config.toml', () => {
@@ -87,7 +87,7 @@ describe('the one instance config.toml', () => {
     expect(readToml(out, '', 'escrow_base_units')).toBe('5000000');
     expect(readToml(out, 'network', 'kill_switch')).toBe('persist'); // Q0426: On = persist
     expect(readToml(out, 'network', 'dns_backend')).toBe('resolvconf');
-    expect(readToml(out, 'split', 'apps')).toEqual(['/usr/bin/firefox']);
+    expect(readToml(out, 'split', 'apps')).toEqual(['/Applications/Firefox.app/Contents/MacOS/firefox']);
     expect(readToml(out, 'rpc', 'url')).toBe('https://rpc.example.org');
     // nothing cb33 does not read: no socket_group, no stray section, the rest of the file kept
     expect(out).not.toContain('socket_group');

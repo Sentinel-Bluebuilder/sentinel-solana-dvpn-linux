@@ -1,53 +1,113 @@
-// ─── `test` — in-app node testing from the CLI (F20) ───
-// Same service as the app's Node test screen. `run` prints one line per step and a
-// verdict per server; Ctrl-C stops it between servers (the current one finishes and
-// disconnects first, so the network is never left mid-session).
+// ─── `test`: in-app node testing from the CLI (rows 143–156) ───
+// Same service and the same server count as the app's Node test page. `run` prints one line
+// per stage and a result per server; Ctrl-C stops it at the next stage (the server being
+// tested is disconnected and its deposit closed first), and `test run --resume` picks the
+// run up where it stopped.
+import { cliErr, CLI_NAME } from './cli-fail';
 import { consoleText } from './console-text';
 import fs from 'node:fs';
 import type { Args } from './args';
 import { flag, str, whole, UsageError } from './args';
 import { confirm, type Out } from './commands';
-import { refreshNodes } from '../main/services/nodes';
+import { refreshNodes, nodeCensus } from '../main/services/nodes';
 import { adoptRunningSession } from '../main/services/connection';
-import { planNodeTest, runNodeTest, stopNodeTest, listRuns, getRun } from '../main/services/node-test';
-import { compareRuns, runSummary, MAX_NODES_PER_RUN, type NodeTestRun } from '../core/nodetest/nodetest';
-import { toBaseUnits } from '../core/chain/amounts';
+import { planNodeTest, runNodeTest, stopNodeTest, listRuns, getRun, serverHistory, type PlanReply } from '../main/services/node-test';
+import { compareRuns, runRow, selectServers, type RunRow, type TestRun } from '../core/nodetest/plan';
+import { STAGE_LABEL, resultSentence, type TestVerdict } from '../core/nodetest/stages';
+import { censusLine } from '../core/nodes/census';
+import { VERDICT_TEXT, stagesText, tallyText } from '../core/nodetest/text';
+import { tdvpn, toBaseUnits } from '../core/chain/amounts';
 
 const short = (s: string): string => (s.length > 12 ? `${s.slice(0, 6)}…${s.slice(-4)}` : s);
+const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`;
+const clock = (ms: number): string => new Date(ms).toISOString().slice(11, 16);
 
-async function pickNodes(a: Args): Promise<string[]> {
-  const listed = a._.slice(2);
-  if (listed.length) return listed;
-  if (!flag(a, 'online')) throw new UsageError('test run <node…> | --online');
-  const online = (await refreshNodes({ probe: true })).filter((n) => n.listingFresh && n.probe?.ok);
-  return online.slice(0, whole(a, 'max-nodes', MAX_NODES_PER_RUN, 1, MAX_NODES_PER_RUN)).map((n) => n.address);
+// UI-194: sentence case, the same words as the Node test page.
+export const VERDICT_WORD: Record<TestVerdict, string> = VERDICT_TEXT;
+
+const list = (a: Args, name: string): string[] => (str(a, name) ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+
+/** Servers named on the command line, or chosen from the ones that can be used right now. */
+async function pickServers(a: Args): Promise<string[]> {
+  const named = a._.slice(2);
+  if (named.length) return named;
+  const chosen = flag(a, 'online') || flag(a, 'failed-last') || flag(a, 'never-tested') || !!str(a, 'country');
+  if (!chosen) throw new UsageError('test run <server…> | --online [--country C] [--protocol P] [--failed-last] [--never-tested] | --resume');
+  const views = await refreshNodes({ probe: true });
+  const usable = new Set(nodeCensus().entries.filter((e) => e.state === 'usable').map((e) => e.address));
+  const picked = selectServers(views.filter((n) => usable.has(n.address)), {
+    countries: list(a, 'country'), protocols: list(a, 'protocol'), failedLast: flag(a, 'failed-last'), neverTested: flag(a, 'never-tested'),
+  }, serverHistory());
+  return picked.slice(0, whole(a, 'max-nodes', 100_000, 1, 100_000)).map((n) => n.address);
 }
 
-function runLines(run: NodeTestRun): string {
-  const s = runSummary(run);
-  const head = `Run ${run.id}  ${run.done}/${run.total}${run.stopped ? ' (stopped)' : ''}  FAST ${s.FAST}  SLOW ${s.SLOW}  FAIL ${s.FAIL}${run.baselineMbps ? `  without VPN ${run.baselineMbps} Mbps` : ''}`;
-  const rows = run.results.map((r) => `${r.verdict.padEnd(9)} ${short(r.node)}  ${(r.service || '?').padEnd(10)} ${(r.country || '').padEnd(15)} ${r.reason}${r.checks.length ? `\n          ${r.checks.map((c) => `${c.ok ? 'ok' : 'x'} ${c.name} ${c.detail}`).join(' · ')}` : ''}`);
-  return [head, ...rows].join('\n');
+const tallyLine = (r: Pick<RunRow, 'working' | 'slow' | 'failed' | 'notTested' | 'stoppedJobs'>): string => tallyText(r);
+
+function runLines(run: TestRun): string {
+  const row = runRow(run);
+  const head = `Run ${run.id}: ${run.stopped ? `stopped after ${row.done} of ${row.total}` : `${row.done} of ${row.total} tested`}. ${tallyLine(row)}.${run.baselineMbps ? ` Without VPN ${run.baselineMbps} Mbps.` : ''}`;
+  const rows = run.results.map((r) => {
+    const stages = stagesText(r);
+    return `${VERDICT_WORD[r.verdict].padEnd(10)} ${short(r.server)}  ${r.protocol.padEnd(10)} ${(r.country || '').padEnd(15)} ${r.code}  ${resultSentence(r)}${stages ? `\n           ${stages}` : ''}`;
+  });
+  const tail = row.resumable ? [`Not finished: ${plural(row.total - row.done, 'test')} left, ${plural(row.openDeposits, 'deposit')} still to close. Continue with: test run --resume --yes`] : [];
+  return [head, ...rows, ...tail].join('\n');
+}
+
+function planLine(servers: number, p: PlanReply): string {
+  const parts = [
+    `${plural(servers, 'server')}: ${plural(p.jobs, 'test')}, at most ${tdvpn(p.peak)} tDVPN on deposit at once, ${tdvpn(p.totalDeposits)} tDVPN paid in deposits over the run.`,
+    'A per-hour deposit is closed right after its server; a per-GB refund takes about 2 hours.',
+    `About ${Math.max(1, Math.round(p.seconds / 60))} min of testing${p.waitSeconds ? `, plus about ${Math.round(p.waitSeconds / 3600)} h waiting for refunds between ${p.batches.length} batches (a limit of ${tdvpn(p.oneBatchLimit)} tDVPN needs no waiting)` : ''}.`,
+  ];
+  if (p.overLimit.length) parts.push(`${plural(p.overLimit.length, 'test')} left out: the deposit is over the limit (smallest limit that fits every server: ${tdvpn(p.smallestLimit)} tDVPN).`);
+  if (p.unpriced.length) parts.push(`${plural(p.unpriced.length, 'test')} on servers that list no price: checked without paying.`);
+  if (p.unknown.length) parts.push(`Not on the network: ${p.unknown.join(', ')}`);
+  return parts.join('\n');
 }
 
 export async function testCmd(a: Args, o: Out): Promise<void> {
   const sub = a._[1] ?? 'history';
+  if (sub === 'servers') {
+    await refreshNodes({ probe: true });
+    const c = nodeCensus();
+    o.print([
+      censusLine(c, clock),
+      `On the network ${c.onNetwork}: can be used ${c.usable}, not answering ${c.notAnswering}, not verified ${c.unverified}, not checked ${c.notChecked}. Listing expired: ${c.listingExpired}.`,
+    ].join('\n'), c);
+    return;
+  }
   if (sub === 'plan' || sub === 'run') {
-    const nodes = await pickNodes(a);
-    const plan = await planNodeTest(nodes);
-    if (!plan.ok || !plan.data) throw new Error(plan.error ?? 'Could not plan the run.');
-    if (sub === 'plan') {
-      o.print(`${nodes.length} server${nodes.length === 1 ? '' : 's'}: up to ${plan.data.estimateText} in deposits (per-hour ones close right after).${plan.data.unknown.length ? `\nNot on the network: ${plan.data.unknown.join(', ')}` : ''}`, plan.data);
-      return;
+    const resume = sub === 'run' && flag(a, 'resume');
+    const limitText = str(a, 'limit') ?? str(a, 'max-spend');
+    const limit = limitText ? toBaseUnits(limitText) : undefined;
+    let servers: string[] = [];
+    let plan: PlanReply | null = null;
+    if (!resume) {
+      servers = await pickServers(a);
+      if (!servers.length) throw cliErr('no-nodes', `${CLI_NAME} test servers`, 'No server matches that choice.');
+      const p = await planNodeTest(servers, { protocols: list(a, 'protocol'), limit });
+      if (!p.ok || !p.data) throw cliErr('test-plan-failed', `${CLI_NAME} test servers`, p.error ?? 'Could not plan the run.');
+      plan = p.data;
+      if (sub === 'plan') { o.print(planLine(servers.length, plan), plan); return; }
+      confirm(a, o, `Test ${plural(servers.length, 'server')}, one real session each: at most ${tdvpn(plan.peak)} tDVPN on deposit at once; the unused part of every deposit is refunded.`, plan);
+    } else {
+      const last = getRun();
+      confirm(a, o, `Continue the last test run${last ? ` (${last.id})` : ''}: close its open deposits, then test the servers it has not reached.`, last ? runRow(last) : null);
     }
-    const maxSpend = str(a, 'max-spend') ? toBaseUnits(str(a, 'max-spend')!) : plan.data.estimate;
-    confirm(a, o, `Test ${nodes.length} server${nodes.length === 1 ? '' : 's'}, one real session each: up to ${plan.data.estimateText} locked in deposits, the unused part comes back when they close.`, plan.data);
     await adoptRunningSession();
-    const onStop = (): void => { stopNodeTest(); process.stderr.write(consoleText('\nStopping after this server…\n', process.stderr)); };
+    const onStop = (): void => { stopNodeTest(); process.stderr.write(consoleText('\nStopping at the next stage…\n', process.stderr)); };
     process.once('SIGINT', onStop);
     try {
-      const r = await runNodeTest({ nodes, maxSpend, confirmed: true }, (p) => {
-        if (!o.json) process.stdout.write(consoleText(`[${Math.min(p.index + 1, p.total)}/${p.total}] ${p.node ? short(p.node) + ' ' : ''}${p.step}\n`));
+      const r = await runNodeTest({ nodes: servers, maxSpend: plan?.limit ?? '0', confirmed: true, protocols: list(a, 'protocol'), resume }, (p) => {
+        if (o.json) return;
+        const where = p.server ? `${short(p.server)} ${p.protocol} ` : '';
+        const what = p.result ? `${VERDICT_WORD[p.result.verdict]}: ${resultSentence(p.result)}`
+          : p.step === 'baseline' ? 'Measuring your speed without VPN…'
+            : p.step === 'closing-deposits' ? 'Closing the test deposits…'
+              : p.step === 'waiting-for-refunds' ? 'Waiting for refunds before the next batch…'
+                : `${STAGE_LABEL[p.step]}…`;
+        process.stdout.write(consoleText(`[${p.done}/${p.total}] ${where}${what}\n`));
       });
       if (!r.ok || !r.data) throw Object.assign(new Error(r.error ?? 'Test run failed.'), { code: r.code });
       o.print(runLines(r.data), r.data);
@@ -58,17 +118,17 @@ export async function testCmd(a: Args, o: Out): Promise<void> {
   }
   if (sub === 'stop') {
     const here = stopNodeTest();
-    o.print(here ? 'Stopping after the current server.' : 'Asked any running test to stop after its current server.', { stopping: true });
+    o.print(here ? 'Stopping at the next stage.' : 'Asked any running test to stop at its next stage.', { stopping: true });
     return;
   }
   if (sub === 'history') {
     const runs = listRuns();
-    o.print(runs.length ? runs.map((r) => `${r.id}  ${r.done}/${r.total}${r.stopped ? ' stopped' : ''}  FAST ${r.fast}  SLOW ${r.slow}  FAIL ${r.fail}`).join('\n') : 'No test runs yet.', runs);
+    o.print(runs.length ? runs.map((r) => `${r.id}: ${r.stopped ? `stopped after ${r.done} of ${r.total}` : `${r.done} of ${r.total} tested`}. ${tallyLine(r)}.${r.resumable ? ' Can be continued.' : ''}`).join('\n') : 'No test runs yet.', runs);
     return;
   }
   if (sub === 'show' || sub === 'export') {
     const run = getRun(a._[2]);
-    if (!run) throw new Error(a._[2] ? `No run ${a._[2]}.` : 'No test runs yet.');
+    if (!run) throw cliErr('no-test-run', `${CLI_NAME} test history`, a._[2] ? `No run ${a._[2]}.` : 'No test runs yet.');
     if (sub === 'export') {
       const out = str(a, 'out');
       const body = JSON.stringify(run, null, 2) + '\n';
@@ -80,7 +140,7 @@ export async function testCmd(a: Args, o: Out): Promise<void> {
       const prevId = listRuns().map((r) => r.id).find((id) => id < run.id);
       const prev = prevId ? getRun(prevId) : null;
       const diff = prev ? compareRuns(prev, run) : [];
-      text += prev ? `\nSince ${prev.id}: ${diff.length ? diff.map((d) => `${short(d.node)} ${d.before} → ${d.after}`).join(', ') : 'no verdict changed'}` : '\nNo earlier run to compare with.';
+      text += prev ? `\nSince ${prev.id}: ${diff.length ? diff.map((d) => `${short(d.server)} ${d.protocol} ${VERDICT_WORD[d.before]} → ${VERDICT_WORD[d.after]}`).join(', ') : 'no result changed'}` : '\nNo earlier run to compare with.';
     }
     o.print(text, run);
     return;

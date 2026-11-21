@@ -5,8 +5,9 @@
 // 0640 + a read ACL for the user who ran setup), render + validate the one file (core/daemon/config),
 // stage it under userData, and apply with one administrator prompt + service restart.
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { parseSettings, readToml, renderConfig, validateSettings, type DaemonSettings } from '../../core/daemon/config';
+import { parseSettings, readToml, renderConfig, validateForApply, type DaemonSettings } from '../../core/daemon/config';
 import { splitNotApplied } from '../../core/session/state';
 import { DEFAULT_DAEMON_HOME, SERVICE_NAME, configMirrorPath, daemonInfo, relinkDaemon, scriptPath } from './manager';
 import { runElevated } from '../system/elevate';
@@ -21,13 +22,24 @@ function home(): string {
 // set up. Not existsSync: under /var/lib/sentinel-dvpn a user without access gets EACCES, which existsSync also
 // reports as "absent", and would be told to set up a service that is installed.
 let lastReadMissing = false;
+// Set by readLive: the copy exists but is empty (a root step was cut off mid-write, e.g. a power loss:
+// hunt1 2026-11-12). Never read as "no settings": an Apply would render a config from nothing.
+let lastReadEmpty = false;
+export { EMPTY_SETTINGS_COPY } from '../../shared/settings-copy';
+import { EMPTY_SETTINGS_COPY } from '../../shared/settings-copy';
 
 /** The one config.toml (via its app-readable copy), given as both halves: its root ([rpc]) and client
  *  keys never share a name, so every reader below works on it unchanged. */
 function readLive(): { root: string; client: string } | null {
   lastReadMissing = false;
+  lastReadEmpty = false;
   try {
     const text = fs.readFileSync(configMirrorPath(home()), 'utf8');
+    if (!text.trim()) {
+      lastReadEmpty = true;
+      log.warn('daemon config copy is empty; not using it', { file: configMirrorPath(home()) });
+      return null;
+    }
     return { root: text, client: text };
   } catch (err) {
     lastReadMissing = (err as NodeJS.ErrnoException).code === 'ENOENT';
@@ -38,7 +50,7 @@ function readLive(): { root: string; client: string } | null {
 
 /**
  * True when this V2Ray/Xray session runs in whole-device mode (Windows TUN). Kept for parity with
- * #31; on Linux it is always false, so the app always sets the system proxy for V2Ray/Xray.
+ * the Windows app; on Linux it is always false, so the app always sets the system proxy for V2Ray/Xray.
  */
 export function serviceUsesTun(_service: string | null | undefined): boolean {
   return false; // Linux: dvpnd runs V2Ray/Xray as a SOCKS proxy only (whole-device TUN is Windows-only)
@@ -77,9 +89,10 @@ export function splitExcludedRoutes(service: string | null | undefined): string[
 }
 
 /** missing = the service was never set up on this computer (no config file), not a permission problem. */
-export function getDaemonSettings(): { readable: boolean; missing?: boolean; settings: Partial<DaemonSettings> } {
+export function getDaemonSettings(): { readable: boolean; missing?: boolean; empty?: boolean; settings: Partial<DaemonSettings> } {
   const live = readLive();
-  return live ? { readable: true, settings: parseSettings(live.root, live.client) } : { readable: false, missing: lastReadMissing, settings: {} };
+  if (live) return { readable: true, settings: parseSettings(live.root, live.client) };
+  return { readable: false, missing: lastReadMissing, ...(lastReadEmpty ? { empty: true } : {}), settings: {} };
 }
 
 /** systemd-resolved is running (its varlink socket exists only while it does). */
@@ -97,9 +110,10 @@ export function hostDnsMode(mode: string | undefined, hasResolved = resolvedActi
 }
 
 export async function applyDaemonSettings(next: DaemonSettings): Promise<{ ok: boolean; error?: string }> {
-  // A new RPC must be https/wss; the one already stored is kept as it is (Q0478).
-  const stored = getDaemonSettings().settings;
-  validateSettings(next, { storedRpc: next.rpcUrl === stored.rpcUrl && next.rpcWsUrl === stored.rpcWsUrl });
+  // An empty copy first: validating against it gave unrelated errors ("Basis must be per_gb or per_hour.")
+  if (getDaemonSettings().empty) return { ok: false, error: EMPTY_SETTINGS_COPY };
+  // A new RPC must be https/wss; the one already stored is kept as it is (Q0478, the Windows app validateForApply).
+  validateForApply(next, getDaemonSettings().settings);
   const dnsMode = hostDnsMode(next.dnsMode);
   if (dnsMode !== next.dnsMode) {
     log.info('DNS mode resolvectl → resolvconf (systemd-resolved is not running)');
@@ -113,7 +127,7 @@ export async function applyDaemonSettings(next: DaemonSettings): Promise<{ ok: b
   fs.mkdirSync(staged, { recursive: true });
   fs.writeFileSync(path.join(staged, 'config.toml'), text, 'utf8');
   fs.rmSync(path.join(staged, 'client.config.toml'), { force: true });
-  const r = await runElevated(scriptPath('apply-daemon-config.sh'), { Staged: staged, DaemonHome: home(), Service: SERVICE_NAME });
+  const r = await runElevated(scriptPath('apply-daemon-config.sh'), { Staged: staged, DaemonHome: home(), Service: SERVICE_NAME, User: stagingUser() });
   log.info('daemon settings apply', { status: r.status, detail: r.detail });
   relinkDaemon();
   if (r.status === 'ok') return { ok: true };
@@ -123,6 +137,12 @@ export async function applyDaemonSettings(next: DaemonSettings): Promise<{ ok: b
     return { ok: true };
   }
   return { ok: false, error: r.detail };
+}
+
+/** L32-2: the account whose data folder holds the staged file; apply-daemon-config.sh reads it as that account.
+ *  Under `sudo devnet-dvpn` it is root (its data folder is root's), never SUDO_USER. */
+function stagingUser(): string {
+  try { return os.userInfo().username; } catch (e) { log.warn('no account name for the staged settings', { err: String(e) }); return ''; }
 }
 
 /** The live config files equal what we staged. apply-daemon-config.sh restores the backup on any failure, so equal = applied. */

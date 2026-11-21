@@ -22,6 +22,15 @@ describe('coverageOf', () => {
     // Direct still home: not device, whatever the proxy says.
     expect(coverageOf({ proxyEndpoint: '127.0.0.1:1080', proxyActive: false, directIp: HOME, proxyIp: NODE, homeIp: HOME, nodeIp: NODE })).toBe('proxy-only');
   });
+  it('whole-device V2Ray/Xray (no system proxy, the macOS app): judged as a full tunnel, never "proxy-only"', () => {
+    const wd = { proxyEndpoint: '127.0.0.1:1080', proxyActive: false, homeIp: HOME, nodeIp: NODE, wholeDevice: true };
+    expect(coverageOf({ ...wd, directIp: null })).toBe('unchecked');
+    expect(coverageOf({ ...wd, directIp: NODE })).toBe('device');
+    expect(coverageOf({ ...wd, directIp: HOME })).toBe('leaking');
+    expect(coverageOf({ ...wd, directIp: NODE, split: 'exclude' })).toBe('split-exclude');
+    // Negative control: the same reading without wholeDevice is the proxy-mode verdict.
+    expect(coverageOf({ ...wd, wholeDevice: undefined, directIp: null })).toBe('proxy-only');
+  });
   it('full tunnel with the node IP is the whole device', () => {
     expect(coverageOf({ proxyEndpoint: '', proxyActive: false, directIp: NODE, homeIp: HOME })).toBe('device');
   });
@@ -43,10 +52,12 @@ describe('coverageCopy', () => {
     expect(coverageCopy('proxy-only').ok).toBe(false);
     expect(coverageCopy('leaking').ok).toBe(false);
     expect(coverageCopy('unchecked').ok).toBe(false);
-    expect(coverageCopy('leaking', { homeIp: HOME }).detail).toContain(HOME);
+    // 2026-11-12: no IP in the text (chips show it, hidden until clicked); it still says sites see you.
+    expect(coverageCopy('leaking', { homeIp: HOME }).detail).not.toContain(HOME);
+    expect(coverageCopy('leaking', { homeIp: HOME }).detail).toMatch(/your own address/);
   });
   it('says what sites see', () => {
-    expect(coverageCopy('device', { vpnIp: NODE }).detail).toContain(NODE);
+    expect(coverageCopy('device', { vpnIp: NODE }).detail).not.toContain(NODE);
   });
   it('IP checks off: cannot confirm', () => {
     expect(coverageCopy('unchecked', { checksOff: true }).detail).toMatch(/cannot confirm/);
@@ -81,8 +92,29 @@ describe('coverage with split tunnelling', () => {
     const copy = coverageCopy('split-exclude-unconfirmed', { homeIp: '1.2.3.4' });
     expect(copy.ok).toBe(false);
     expect(copy.title).not.toMatch(/Protected/);
-    expect(copy.detail).toContain('1.2.3.4');
+    expect(copy.detail).not.toContain('1.2.3.4');
     // Without a split, a home-IP reading is still a leak.
     expect(coverageOf({ proxyEndpoint: '', proxyActive: false, directIp: '1.2.3.4', homeIp: '1.2.3.4', nodeIp: '9.9.9.9' })).toBe('leaking');
+  });
+});
+
+describe('whole-device scope (Android names the phone and its per-app / per-address split)', () => {
+  it('names the device: this computer by default, this phone on Android', () => {
+    expect(coverageCopy('device').detail).toBe('Every app on this computer uses the VPN.');
+    expect(coverageCopy('device', { scope: { place: 'this phone' } }).detail).toBe('Every app on this phone uses the VPN.');
+  });
+  it('says what the per-app split includes or leaves out', () => {
+    const scope = (mode: 'include' | 'exclude', count: number) => ({ scope: { place: 'this phone', split: { mode, count } } });
+    expect(coverageCopy('device', scope('exclude', 1)).detail).toBe('Every app on this phone uses the VPN except the one you chose.');
+    expect(coverageCopy('device', scope('exclude', 3)).detail).toBe('Every app on this phone uses the VPN except the 3 you chose.');
+    expect(coverageCopy('device', scope('include', 1)).detail).toBe('Only the app you chose uses the VPN.');
+    expect(coverageCopy('device', scope('include', 2)).detail).toBe('Only the 2 apps you chose use the VPN.');
+    // an empty list is no split (the VPN service treats it as all apps)
+    expect(coverageCopy('device', scope('include', 0)).detail).toBe('Every app on this phone uses the VPN.');
+  });
+  it('adds the address split in one more sentence', () => {
+    const r = (routeMode: 'include' | 'exclude', routeCount: number) => ({ scope: { place: 'this phone', split: { mode: 'all' as const, count: 0, routeMode, routeCount } } });
+    expect(coverageCopy('device', r('include', 1)).detail).toBe('Every app on this phone uses the VPN. Only the address you chose goes through it.');
+    expect(coverageCopy('device', r('exclude', 2)).detail).toBe('Every app on this phone uses the VPN. The 2 addresses you chose go direct.');
   });
 });

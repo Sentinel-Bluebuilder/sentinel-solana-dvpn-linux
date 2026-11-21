@@ -1,0 +1,37 @@
+# the Linux app Linux: shared-folder files of the Windows app 7e1f303 that differ here, one `path | reason` per line (scripts/parity.mjs --strict).
+# Each test below pins Windows-only code that lives in a PLATFORM file; it belongs in the Windows app tests/platform/win32 (E-60).
+tests/unit/app-user-account.test.ts | Windows DOMAIN\user + the PowerShell elevatedArgLine; Linux runs the app as the login user and elevates with pkexec/sudo, no DOMAIN\user
+tests/unit/sc-language.test.ts | parses sc.exe output (parseTunnelServices); Linux has no sc.exe, tunnels come from systemd units + ip link
+tests/unit/restore-openvpn-leftover.test.ts | Windows tasklist parser + U-27b; Linux finds a leftover openvpn with the process table (tunnels.ts openvpnRunning)
+tests/unit/cli-drivers-tail.test.ts | pins Windows DRIVER_LABELS (platform drivers.ts); Linux labels differ (apt/dnf/pacman packages)
+tests/unit/device-topup-once.test.ts | its E13 block greps Windows' post-apply start in daemon/settings.ts; Linux restarts the systemd unit instead
+# Not a source file: kept ahead of the Windows app on purpose.
+package.json | grpc-js 1.13.7 (e6fcf712 OSS audit) ahead of the Windows app 1.13.6; the Windows app is still on 1.13.6 at rc.9 (12fc95db), so it stays ahead until the Windows app takes it (D9, re-checked 2026-11-21)
+package-lock.json | grpc-js 1.13.7 (e6fcf712 OSS audit) ahead of the Windows app 1.13.6; the Windows app is still on 1.13.6 at rc.9 (12fc95db), so it stays ahead until the Windows app takes it (D9, re-checked 2026-11-21)
+src/shared/i18n/locales/en/main.json | regenerated here by scripts/i18n-extract.mjs (E-67, lead order rc.7): the Windows app's copy carries 42 sentences from the Windows platform layer that this source does not have, so the i18n-gates "English chunks up to date" test failed and stopped the release build; goes away with per-platform chunks
+# rc.9 port (the Windows app 12fc95db, file-level, lead order 2026-11-21).
+src/cli/agent-cmd.ts | RC8 W47 (the Linux app only): an installed but stopped systemd service gets `systemctl start` (stoppedStartNext over linuxUnits), not a reinstall; the Windows app has no systemd units
+src/cli/daemon-cmd.ts | RC8 W47 (the Linux app only): doctor's service rows (linuxDoctorRows + serviceAnswers) for a stopped systemd unit; the Windows app has no systemd units
+tests/unit/agent-cmd.test.ts | pins RC8 W47 above (linuxUnits mock + the T-C row 16 block)
+tests/unit/state-matrix.test.ts | mocks RC8 W47's linuxUnits / SERVICE_NAME, which agent-cmd.ts imports here
+tests/unit/keyfile-unreadable.test.ts | rc.9 KEYFILE-UNREADABLE-QUOTE (review's find): the Linux chown/chmod next quotes a spaced path (shellWord); the Windows app takes it back
+tests/unit/after-pack.test.ts | the Windows app's AFTER-PACK prune (win32 binary check) is replaced on Linux by PRUNE-LINUX: scripts/after-pack-linux.cjs + scripts/check-payload-arch.mjs, pinned by tests/unit/payload-prune.test.ts
+# the Windows app rc9-c (bbca7cc6): only A10 + CLOCK-UNKNOWN are shared Linux fixes (lead order); these stay the Windows app-only.
+src/cli/commands.ts | rc9-c OWNER-SYNC (Windows: setup-daemon.ps1 -Owner rewrites the owner for the same key). On Linux ADOPT-OWNER-LINUX never adopts another wallet's service, so that state does not arise
+src/cli/payer.ts | rc9-c PAYER-ASCII: PowerShell 5.1 console mojibake only; Linux terminals are UTF-8
+tests/unit/cli-payer.test.ts | pins PAYER-ASCII above
+tests/unit/dvpnd-bin-packaged.test.ts | the Windows app's Windows form of DVPND-BIN; the Linux app pins its own Linux version in tests/platform/linux/dvpnd-bin-packaged.test.ts
+tests/unit/owner-pending.test.ts | rc9-c OWNER-PENDING (service-owner-pending.json for the Windows OWNER-SYNC path); the Linux app uses ADOPT-OWNER-LINUX, tests/unit/adopt-owner-linux.test.ts
+tests/unit/service-owner-sync.test.ts | pins rc9-c OWNER-SYNC (Windows, above)
+tests/unit/service-name-check.test.ts | rc9-c Windows staging-guard.ps1 service-name check; the Linux app pins sentinel-dvpnd@c0 in tests/platform/linux/root-steps-audit.test.ts (D5)
+tests/unit/staging-guard.test.ts | rc9-c Windows staging-guard.ps1 (D1-D3); the Linux app's shell form is tests/platform/linux/root-steps-audit.test.ts
+tests/unit/windows-account.test.ts | rc9-c KWIN-SID: icacls by SID from whoami /user, Windows only
+tests/unit/dev-hooks-gate.test.ts | its rc9-c2 pipeline block pins Windows release-win.mjs / package:win / vm-build-asar.ps1; the Linux app pins release-linux.mjs + package:linux in tests/platform/linux/dev-hooks-pipeline.test.ts
+tests/unit/installer-owner-order.test.ts | rc9-c2 R1: the Windows NSIS installer locks the app folder before any elevated script; Linux packages install root-owned under /opt
+tests/unit/wallet-switch-loop.test.ts | rc9-d: the Linux app agent status keeps its W47 stopped-service start line (serviceDown ? startNext ?? nextFor(...)); the regex accepts it, the switch still comes first
+tests/unit/installer-lock-r1b.test.ts | rc9-d R1b: pins the Windows NSIS installer lock + assert-app-folder.ps1; its shared doctor-ASCII block is tests/platform/linux/doctor-ascii.test.ts
+tests/unit/installer-pluginsdir-deps.test.ts | rc9-e 4822d295e: the Windows NSIS installer dot-sources staging-guard.ps1 from $PLUGINSDIR; Linux packages have no NSIS step
+# L32-1 (rc9-f-linux): setup-daemon.sh pins --Dvpnd/--BinRoot to the package (/opt/devnet-dvpn) only. The AppImage path is by design: root cannot read the FUSE mount, so elevate.ts stageForRoot copies the scripts and binaries to a user-owned /tmp folder and pkexec runs that copy under polkit's default action (the prompt names the path); root then runs files the user could change.
+tests/unit/list-apps-registry.test.ts | rc9-f 711b88bc2 W-WIN-2: pins the Windows list-apps.ps1 App Paths registry roots; Linux lists apps from .desktop files
+tests/unit/installer-dir-race.test.ts | rc9-f 383d7ff42 / rc9-f2 b5fb6e1ca: the Windows NSIS installer locks the app folder before the unpack (guard-app-folder.ps1); Linux packages install root-owned under /opt
+tests/unit/rc9f2-more.test.ts | rc9-f2 74916ff9d: pins setup-daemon.ps1's Assert check of sentinel-dvpnd.exe and every BinRoot .exe; the Linux counterpart is L32-1 (setup-daemon.sh pins --Dvpnd / --BinRoot to the package), tests/platform/linux/rc9f-linux.test.ts

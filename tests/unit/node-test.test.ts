@@ -16,7 +16,7 @@ describe('node test rules (F20)', () => {
   });
 
   it('reads the exit IP to expect from the node URI, only when it is a literal IP', () => {
-    expect(uriIp('https://203.0.113.17:18711')).toBe('203.0.113.17');
+    expect(uriIp('https://35.232.17.117:18711')).toBe('35.232.17.117');
     expect(uriIp('https://[2001:db8::1]:443')).toBe('2001:db8::1');
     expect(uriIp('https://node.example.com:443')).toBeNull();
     expect(uriIp('not a uri')).toBeNull();

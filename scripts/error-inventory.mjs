@@ -10,22 +10,23 @@ import path from 'node:path';
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..');
 const SRC = path.join(ROOT, 'src');
 
+// A sentence wrapped for translation (tr('…') / said('…'), plan B3) is the same user-facing string: (?:(?:tr|said)\(\s*)? looks through it.
 const KINDS = [
-  ['throw', /throw new (?:Error|UsageError|ConfigError|FlagError|AmountError)\(\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
-  ['result', /\berror:\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
-  ['fail', /\bfail\(\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
-  ['toast', /toast\(\s*'(?:error|warn|info|success)',\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
-  ['copy', /\bmessage:\s*(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
-  // returned sentences (refusal helpers like fundingBlocker, dnsProbeProblem): a capital first and
-  // a full stop / question mark last, so code-ish returns ('ok', keys, paths) stay out (#31 6b76957, C14)
-  ['return', /\breturn\s+(`[A-Z](?:[^`\\]|\\.)*[.?]`|'[A-Z](?:[^'\\]|\\.)*[.?]'|"[A-Z](?:[^"\\]|\\.)*[.?]")/g],
+  ['throw', /throw new (?:Error|ShownError|UsageError|ConfigError|FlagError|AmountError)\(\s*(?:(?:tr|said)\(\s*)?(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
+  ['result', /\berror:\s*(?:(?:tr|said)\(\s*)?(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
+  ['fail', /\bfail\(\s*(?:(?:tr|said)\(\s*)?(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
+  ['toast', /toast\(\s*'(?:error|warn|info|success)',\s*(?:(?:tr|said)\(\s*)?(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
+  ['copy', /\bmessage:\s*(?:(?:tr|said)\(\s*)?(`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")/g],
   // props may hold JSX and arrows (`action={<button onClick={() => …}>…</button>}`): skip to the
   // Banner's own `>` by matching balanced-enough `{…}` props instead of stopping at the first `>`
+  // returned sentences (refusal helpers like fundingBlocker, dnsProbeProblem): a capital first and
+  // a full stop / question mark last, so code-ish returns ('ok', keys, paths) stay out
+  ['return', /\breturn\s+(?:(?:tr|said)\(\s*)?(`[A-Z](?:[^`\\]|\\.)*[.?]`|'[A-Z](?:[^'\\]|\\.)*[.?]'|"[A-Z](?:[^"\\]|\\.)*[.?]")/g],
   ['banner', /<Banner(?:\s+\w+=(?:"[^"]*"|\{(?:[^{}]|\{(?:[^{}]|\{[^{}]*\})*\})*\}))*\s*>([^<{]{8,})</g],
 ];
 
 function walk(dir, out = []) {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, out);
     else if (/\.(ts|tsx)$/.test(e.name)) out.push(p);

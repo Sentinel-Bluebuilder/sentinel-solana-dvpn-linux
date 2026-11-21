@@ -4,7 +4,7 @@
 // "Network restored." kept the table (ddv-fix-lnx1 0.1.10, 04:24Z 10-29).
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const st = vi.hoisted(() => ({ left: [] as string[], sweeps: 0, sweep: { ok: true, detail: 'removed: Hysteria2 meter (nft inet dvpnd_hy2)' } }));
+const st = vi.hoisted(() => ({ left: [] as string[], sweeps: 0, sweepOn: true, sweep: { ok: true, detail: 'removed: Hysteria2 meter (nft inet dvpnd_hy2)' } }));
 vi.mock('../../src/main/system/proxy', () => ({ setSystemProxy: vi.fn(), clearSystemProxy: async () => undefined }));
 vi.mock('../../src/main/app-state', () => ({ snapshot: () => ({ session: null }), patch: vi.fn(), setSplitInEffect: vi.fn(), toast: vi.fn() }));
 vi.mock('../../src/main/services/stop-session', () => ({ stopLiveOrCurrent: async () => ({ session: null, dnsRevertFailed: false }) }));
@@ -20,6 +20,9 @@ vi.mock('../../src/main/system/dns-check', () => ({ dnsReallyLeftOver: async () 
 vi.mock('../../src/main/system/tunnels', () => ({
   leftoverTunnels: async () => st.left,
   rivalVpns: async () => [],
+  // Platform export: Linux/macOS true (root sees nft tables), Windows/Android false (no new UAC prompt).
+  restoreNetworkSweep: () => st.sweepOn,
+  openvpnRunning: async () => false,
   removeTunnelServices: async () => { st.sweeps++; return st.sweep; },
 }));
 vi.mock('../../src/core/chain/rpc', () => ({ getRpcUrls: () => [], resetRpcTransport: vi.fn() }));
@@ -28,7 +31,7 @@ vi.mock('../../src/main/daemon/settings', () => ({ getDaemonSettings: () => ({ s
 const { restoreNetwork } = await import('../../src/main/services/connection');
 
 describe('restore network sweeps firewall tables (Q0239)', () => {
-  beforeEach(() => { st.left = []; st.sweeps = 0; st.sweep = { ok: true, detail: 'removed: Hysteria2 meter (nft inet dvpnd_hy2)' }; });
+  beforeEach(() => { st.sweepOn = true; st.left = []; st.sweeps = 0; st.sweep = { ok: true, detail: 'removed: Hysteria2 meter (nft inet dvpnd_hy2)' }; });
 
   it('no tunnel visible: the root step still runs (it is the only one that sees nft tables)', async () => {
     const r = await restoreNetwork();
@@ -47,5 +50,12 @@ describe('restore network sweeps firewall tables (Q0239)', () => {
     const r = await restoreNetwork();
     expect(r.ok).toBe(false);
     expect(r.code).toBe('tunnel-left');
+  });
+  // Negative control: an OS whose restoreNetworkSweep() is false (Windows) runs no root step when nothing is visible.
+  it('sweep off and no tunnel visible: no root step, still ok', async () => {
+    st.sweepOn = false;
+    const r = await restoreNetwork();
+    expect(r.ok).toBe(true);
+    expect(st.sweeps).toBe(0);
   });
 });

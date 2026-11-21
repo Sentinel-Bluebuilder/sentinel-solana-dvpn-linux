@@ -72,7 +72,7 @@ describe('failed connect while another session runs (Q0191)', () => {
     expect(st.state.conn.restoreNetwork).toBeFalsy();
   });
 
-  it('negative control: with no session behind it the tunnel is still reported (gap #29)', async () => {
+  it('negative control: with no session behind it the tunnel is still reported (gap another project)', async () => {
     st.left = ['xray.exe'];
     st.start = async () => { throw new Error('node refused the session'); };
     const r = await connect(req);

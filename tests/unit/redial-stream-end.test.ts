@@ -19,6 +19,7 @@ vi.mock('../../src/main/app-state', () => ({
     if (p.conn) st.phase = p.conn.phase;
   },
   setSplitInEffect: vi.fn(),
+  setWholeDeviceInEffect: vi.fn(), // macOS: the adopt/end paths set it
   toast: vi.fn(),
 }));
 vi.mock('../../src/main/daemon/manager', () => ({
@@ -30,12 +31,12 @@ vi.mock('../../src/main/daemon/manager', () => ({
 }));
 vi.mock('../../src/main/logger', () => ({ log: { warn: vi.fn(), info: vi.fn(), error: vi.fn(), debug: vi.fn() } }));
 vi.mock('../../src/main/services/history', () => ({ recordStart: vi.fn(), recordEnd: vi.fn() }));
-vi.mock('../../src/main/services/settlement', () => ({ settleChannelSoon: vi.fn(), settlesOnEnd: (r: string) => !/switching servers/i.test(r) }));
+vi.mock('../../src/main/services/settlement', () => ({ settleChannelSoon: vi.fn() }));
 vi.mock('../../src/main/system/dns-check', () => ({ dnsReallyLeftOver: async () => false, flushDnsCache: vi.fn() }));
 vi.mock('../../src/main/system/tunnels', () => ({ leftoverTunnels: async () => [], rivalVpns: async () => [], removeTunnelServices: async () => undefined }));
 vi.mock('../../src/core/quality/reachability', () => ({ internetReachable: async () => true }));
-vi.mock('../../src/core/chain/rpc', () => ({ getRpcUrls: () => [], resetRpcTransport: vi.fn() }));
-vi.mock('../../src/main/daemon/settings', () => ({ getDaemonSettings: () => ({ settings: { dnsServers: [], killSwitch: 'off' } }), splitForSession: vi.fn() }));
+vi.mock('../../src/core/chain/rpc', () => ({ getRpcUrls: () => [], resetRpcTransport: vi.fn(), onRpcRetry: () => () => undefined }));
+vi.mock('../../src/main/daemon/settings', () => ({ getDaemonSettings: () => ({ settings: { dnsServers: [], killSwitch: 'off' } }), splitForSession: vi.fn(), serviceUsesTun: () => true }));
 
 const { adoptRunningSession } = await import('../../src/main/services/connection');
 

@@ -30,7 +30,7 @@ export async function waitForDirectPath(maxMs = SETTLE_MAX_MS, sleep = (ms: numb
 
 // ─── Wait for DNS through a new full tunnel ───
 // AmneziaWG on the GCP VM (2026-10-21): data flowed at once, but every name lookup failed for
-// the first ~2.2 s ("Could not resolve host") until the system applied the tunnel's DNS server.
+// the first ~2.2 s ("Could not resolve host") until Windows applied the tunnel's DNS server.
 // Saying "Connected" in that gap made the first page load fail. Wait for one lookup to work.
 export const DNS_READY_MAX_MS = 6_000;
 

@@ -1,9 +1,9 @@
 # Architecture — Devnet dVPN
 
-Feature IDs (F*.*) refer to [`FEATURE-PLAN.md`](FEATURE-PLAN.md). This is the **Linux** build:
+Feature IDs (F*.*) refer to `FEATURE-PLAN.md`. This is the **Linux** build:
 the daemon link is a unix socket, the service is systemd, root steps go through one polkit-guarded
 helper, and data lives in XDG paths. Every Windows piece and its Linux replacement is mapped in
-[`LINUX-PORT.md`](LINUX-PORT.md).
+`LINUX-PORT.md`.
 
 ## Processes and trust
 
@@ -75,7 +75,7 @@ src/
                      Settings, Diagnostics, Node test), components, theme tokens
 ```
 
-Port sources for each module: [`REUSE-MAP.md`](REUSE-MAP.md).
+Port sources for each module: `REUSE-MAP.md`.
 
 ## IPC tiers (M5.2 #1)
 

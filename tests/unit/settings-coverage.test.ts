@@ -20,9 +20,9 @@ describe('CLI covers every setting', () => {
   // Daemon config fields: a `daemon set` flag each.
   const FLAG: Record<string, string> = {
     killSwitch: '--kill-switch', dnsMode: '--dns-mode', allowLan: '--allow-lan', dnsServers: '--dns', basis: '--basis', escrow: '--escrow',
-    prepayBytes: '--prepay-mb', prepaySeconds: '--prepay-minutes', rpcUrl: '--rpc ', rpcWsUrl: '--rpc-ws',
-    // [split] (SplitSettings fields; apps: Windows only, refused here by daemon set)
-    mode: '--split-mode', apps: '--split-mode', routes: '--split-routes', split: '--split-mode',
+    prepayBytes: '--prepay-mb', prepaySeconds: '--prepay-minutes', wholeDevice: '--whole-device', rpcUrl: '--rpc ', rpcWsUrl: '--rpc-ws',
+    // [split] (SplitSettings fields)
+    mode: '--split-mode', apps: '--split-apps', routes: '--split-routes', split: '--split-mode',
   };
   const fields = [...fs.readFileSync('src/core/daemon/config.ts', 'utf8').matchAll(/^\s{2}(\w+)\??:\s/gm)]
     .map((m) => m[1])
@@ -46,12 +46,12 @@ describe('CLI covers every setting', () => {
 
 describe('Settings screen covers every setting (CLI = app)', () => {
   const ui = ['Settings', 'KillSwitch', 'SplitTunnel'].map((p) => fs.readFileSync(`src/renderer/src/screens/${p}.tsx`, 'utf8')).join('\n');
-  const UI_ELSEWHERE: Record<string, string> = { favourites: 'node list star', language: 'English only in v1', poll: 'PollSettings' };
+  const UI_ELSEWHERE: Record<string, string> = { favourites: 'node list star', language: 'LanguageSelector (sidebar, welcome, Settings)', poll: 'PollSettings' };
   it.each(Object.keys(DEFAULT_SETTINGS))('app setting %s has a control', (k) => {
     if (UI_ELSEWHERE[k]) return expect(UI_ELSEWHERE[k] === 'PollSettings' ? ui : 'ok').toContain(UI_ELSEWHERE[k] === 'PollSettings' ? '<PollSettings' : 'ok');
     expect(ui).toMatch(new RegExp(`settings\.${k}\b|\{ ${k}:`));
   });
-  it.each(['killSwitch', 'dnsMode', 'allowLan', 'dnsServers', 'basis', 'escrow', 'prepayBytes', 'prepaySeconds', 'rpcUrl', 'rpcWsUrl'])('daemon field %s has a control', (f) => {
+  it.each(['killSwitch', 'dnsMode', 'allowLan', 'dnsServers', 'basis', 'escrow', 'prepayBytes', 'prepaySeconds', 'wholeDevice', 'rpcUrl', 'rpcWsUrl'])('daemon field %s has a control', (f) => {
     expect(ui).toMatch(new RegExp(`draft\.${f}\b|${f}:`));
   });
   it('daemon field split has controls for mode, apps and routes (Split tunnelling page)', () => {
@@ -59,6 +59,7 @@ describe('Settings screen covers every setting (CLI = app)', () => {
     expect(page).toMatch(/setSplit\(\{ mode:/);
     expect(page).toMatch(/setSplit\(\{ apps:/);
     expect(page).toMatch(/setSplit\(\{ routes:/);
-    expect(page).toMatch(/validateSplit\(split\)/); // same rules as dvpnd before Apply
+    // same rules as dvpnd before Apply, for this OS (the renderer has no process.platform: DVPN-LINUX KSM10)
+    expect(page).toMatch(/validateSplit\(split, rendererPlatform\(\)\)/);
   });
 });

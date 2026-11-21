@@ -24,6 +24,7 @@ describe('StartSession terms basis (Q0283)', () => {
     const src = read('src/main/services/connection.ts');
     expect(src).toMatch(/daemon\(\)\.startSession\(node, cred, isTicket \? undefined : basis\)/);
     expect(src).toMatch(/startWithRetry\(req\.node, cred, !!req\.subscription, req\.basis\)/);
-    expect(src).toMatch(/escrow: cost\.escrow \} \}, false, req\.basis\)/);
+    // CODE-AUDIT E3: no second, unshown deposit start after a refused reuse (it used to pass the basis too).
+    expect(src).not.toMatch(/escrow: cost\.escrow \} \}, false, req\.basis\)/);
   });
 });

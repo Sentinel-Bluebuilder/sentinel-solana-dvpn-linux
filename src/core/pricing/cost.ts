@@ -4,11 +4,12 @@
 // back after settlement. Billing is on wire bytes (≈ +8 % on bulk downloads,
 // more on small packets — sentinel-solana docs/18 §6a).
 import { tdvpn } from '../chain/amounts';
+import { tr } from '../../shared/i18n';
 
 export const GB_OPTIONS = [1, 2, 5, 10, 25, 50];
 export const HOUR_OPTIONS = [1, 2, 4, 8, 12, 24];
 export const PROTOCOL_FEE_BPS = 200;
-export const WIRE_OVERHEAD_NOTE = 'Usage is measured on the wire, about 8–10% above what you download, more for small packets.';
+export const WIRE_OVERHEAD_NOTE = (): string => tr('Usage is measured on the wire, about 8–10% above what you download, more for small packets.');
 
 export type Basis = 'per_gb' | 'per_hour';
 
@@ -33,7 +34,7 @@ export function costPreview(node: { pricePerGb: string; pricePerHour: string }, 
     unitPrice,
     escrow,
     escrowText: `${tdvpn(escrow)} tDVPN`,
-    feeText: `Protocol fee: 2% of what you use (at most ${tdvpn(fee.toString())} tDVPN)`,
+    feeText: tr('Protocol fee: 2% of what you use (at most {fee} tDVPN)', { fee: tdvpn(fee.toString()) }),
     available,
   };
 }
@@ -47,14 +48,27 @@ export function priceLabel(baseUnits: string, basis: Basis): string {
 export const DEVICE_SOL_MIN = 5_000_000;
 
 /** Can the wallet pay this escrow through the device? Returns the first blocker or null. */
-export function fundingBlocker(p: { escrow: string; walletTdvpn: string; userBalance: string; delegated: string; allowance: string; deviceLamports: number }): string | null {
+type FundingInput = { escrow: string; walletTdvpn: string; userBalance: string; delegated: string; allowance: string; deviceLamports: number };
+/** What stops this deposit, as the connect code (core/session/state.ts PREFLIGHT_CODES); null = nothing. The code is
+ *  decided here, not read back from the sentence, so it holds in every language. */
+export function fundingProblem(p: FundingInput): 'not-enough-tdvpn' | 'spending-approval' | 'spending-limit' | 'device-sol' | null {
   const escrow = BigInt(p.escrow);
   const pool = BigInt(p.userBalance) + BigInt(p.walletTdvpn);
-  if (pool < escrow) return `Not enough tDVPN: this deposit needs ${tdvpn(p.escrow)}.`;
+  if (pool < escrow) return 'not-enough-tdvpn';
   const shortfall = escrow > BigInt(p.userBalance) ? escrow - BigInt(p.userBalance) : 0n;
-  if (shortfall > BigInt(p.delegated)) return 'Your spending approval is lower than this deposit. Raise it in Wallet → Device.';
-  if (BigInt(p.allowance) < escrow) return "This device's spending limit is lower than this deposit. Raise it in Wallet → Device.";
+  if (shortfall > BigInt(p.delegated)) return 'spending-approval';
+  if (BigInt(p.allowance) < escrow) return 'spending-limit';
   // The device pays the channel account rent (~0.003 SOL, returned on close) plus fees.
-  if (p.deviceLamports < DEVICE_SOL_MIN) return 'This device needs a little SOL (0.005) for network fees and the deposit account. Top it up in Wallet → Device.';
+  if (p.deviceLamports < DEVICE_SOL_MIN) return 'device-sol';
   return null;
+}
+
+export function fundingBlocker(p: FundingInput): string | null {
+  switch (fundingProblem(p)) {
+    case 'not-enough-tdvpn': return tr('Not enough tDVPN: this deposit needs {escrow}.', { escrow: tdvpn(p.escrow) });
+    case 'spending-approval': return tr('Your spending approval is lower than this deposit. Raise it in Wallet → Device.');
+    case 'spending-limit': return tr('This device\'s spending limit is lower than this deposit. Raise it in Wallet → Device.');
+    case 'device-sol': return tr('This device needs a little SOL (0.005) for network fees and the deposit account. Top it up in Wallet → Device.');
+    default: return null;
+  }
 }

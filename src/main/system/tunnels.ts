@@ -1,4 +1,4 @@
-// ─── Leftover tunnels (F14.3, UPSTREAM-GAPS #24 / #29 / #32) — Linux ───
+// ─── Leftover tunnels (F14.3, UPSTREAM-GAPS another project / another project / the Linux app) — Linux ───
 // A dvpnd that died (SIGKILL, crash, power loss) can leave its tunnel link up and its
 // protocol process running: the default route still points into the dead tunnel, and the
 // kill switch table `inet sentinel-dvpn-c0` (cb33; `inet dvpnd` before) may still drop everything (sentinel-solana docs 25 §3).
@@ -38,6 +38,24 @@ export function runningTunnelServices(): Promise<string[]> {
   });
 }
 
+/**
+ * Platform export (shared connection.ts, Q0239): Restore network runs the root clean-up even when no tunnel is visible.
+ * Only root can list nft tables, so a SIGKILLed dvpnd's `inet dvpnd_hy2` / kill switch table is seen by that step alone.
+ */
+export function restoreNetworkSweep(): boolean {
+  return true;
+}
+
+/**
+ * Shared seam (the Windows app d3559d8, CODE-AUDIT U-27b): Windows cannot see a SYSTEM openvpn.exe's command line, so any
+ * openvpn.exe running triggers its elevated clean-up. Linux needs no such guess: /proc shows root processes'
+ * command lines, so a leftover openvpn of dvpnd's is already in leftoverTunnels() (orphanProcesses: its config
+ * under /var/lib/sentinel-dvpn), and Restore network always sweeps (restoreNetworkSweep). Never true here.
+ */
+export async function openvpnRunning(): Promise<boolean> {
+  return false;
+}
+
 /** Remove our leftover tunnels, kill switch table and orphaned protocol processes (one administrator prompt). Call only with no live session. */
 export async function removeTunnelServices(): Promise<{ ok: boolean; detail: string }> {
   const r = await runElevated(scriptPath('remove-tunnels.sh'), { BinRoot: path.dirname(binPath('x')) }, 120_000);
@@ -45,7 +63,7 @@ export async function removeTunnelServices(): Promise<{ ok: boolean; detail: str
   return { ok: r.status === 'ok', detail: r.detail };
 }
 
-// ─── Orphaned protocol processes (UPSTREAM-GAPS #32) ───
+// ─── Orphaned protocol processes (UPSTREAM-GAPS the Linux app) ───
 // When dvpnd dies, its hysteria2 / v2ray / xray child can keep running and keep the tunnel
 // (and, for per-hour channels, the bill) going. Ours = run from the app's own bin folder;
 // openvpn = run with dvpnd's config under /var/lib/sentinel-dvpn (cb33) or /var/lib/dvpnd (before).
@@ -93,7 +111,7 @@ export function runningProtocolProcesses(): Promise<string[]> {
   return Promise.resolve(orphanProcesses(listProcs(), path.dirname(binPath('x'))));
 }
 
-// ─── Another VPN holding the default route (Cosmos lesson D6, #31 07a8144) — Linux ───
+// ─── Another VPN holding the default route (Cosmos lesson D6, the Windows app 07a8144) — Linux ───
 // Two VPNs fight over the same traffic: routes conflict and the second tunnel often carries
 // nothing. On Linux a VPN shows up as the 0.0.0.0/1 + 128.0.0.0/1 pair (OpenVPN def1, many
 // clients) or as a default route on a tunnel-type link, in main or in its own table (wg-quick

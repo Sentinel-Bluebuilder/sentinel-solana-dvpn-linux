@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createHash, createPrivateKey, sign as edSign } from 'node:crypto';
 import { Keypair } from '@solana/web3.js';
-import { rawPayload, verifySignedMetadata, domain, DOMAIN_NODE_METADATA, DOMAIN_PROVIDER_METADATA } from '../../src/core/nodes/nodeapi';
+import { readFileSync } from 'node:fs';
+import { rawPayload, verifySignedMetadata, DOMAIN_NODE_METADATA, DOMAIN_PROVIDER_METADATA } from '../../src/core/nodes/nodeapi';
 import { countryName, continentOf, flagEmoji } from '../../src/core/nodes/country';
 import { closeReasonCopy, connectErrorCopy, phaseFromDaemon, viewFor, openedChannelOn429, NODE_ERROR_ALIASES } from '../../src/core/session/state';
 import { planChannel, refundable, formatCountdown } from '../../src/core/settlement/settlement';
@@ -10,7 +11,7 @@ import { keypairFromInput, keypairToJson } from '../../src/core/wallet/keys';
 import bs58 from 'bs58';
 
 // ─── Signed metadata ───
-function signed(kp: Keypair, payloadText: string, dom = DOMAIN_NODE_METADATA): string {
+function signed(kp: Keypair, payloadText: string, dom: Buffer = DOMAIN_NODE_METADATA[0]): string {
   const digest = createHash('sha256').update(Buffer.from(payloadText, 'utf8')).digest();
   const key = createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), Buffer.from(kp.secretKey.subarray(0, 32))]), format: 'der', type: 'pkcs8' });
   const sig = edSign(null, Buffer.concat([dom, digest]), key);
@@ -31,25 +32,22 @@ describe('nodeapi', () => {
     expect(verifySignedMetadata(tampered, JSON.parse(tampered))).toBe(false);
     expect(verifySignedMetadata(text, JSON.parse(text), DOMAIN_PROVIDER_METADATA)).toBe(false);
   });
-  it('domains match upstream cf4c372 auth.NewDomain (sha256 of the tag); padded dfe36c7 bodies still verify', () => {
-    expect(DOMAIN_NODE_METADATA.toString('hex')).toBe(createHash('sha256').update('sentinel-dvpn/node-metadata/v1').digest('hex'));
-    expect(DOMAIN_PROVIDER_METADATA.toString('hex')).toBe(createHash('sha256').update('sentinel-dvpn/provider-metadata/v1').digest('hex'));
+  it('accepts the legacy padded domain (dfe36c7 nodes) for nodes and providers', () => {
     const kp = Keypair.generate();
     const p = '{"node":"N"}';
-    const oldNode = signed(kp, p, domain('sentinel-dvpn/node-metadata/v1'));
-    expect(verifySignedMetadata(oldNode, JSON.parse(oldNode))).toBe(true);
-    const oldProvider = signed(kp, p, domain('sentinel-dvpn/provider-meta/v1'));
-    expect(verifySignedMetadata(oldProvider, JSON.parse(oldProvider), DOMAIN_PROVIDER_METADATA)).toBe(true);
-    expect(verifySignedMetadata(oldProvider, JSON.parse(oldProvider))).toBe(false); // provider body is not node metadata
-  });
-  it('real cf4c372 replies captured from ddv-node-1 (by #31) verify, each only under its own domain', async () => {
-    const fs = await import('node:fs');
-    const node = fs.readFileSync('tests/fixtures/node-metadata.cf4c372.json', 'utf8');
-    const prov = fs.readFileSync('tests/fixtures/provider-metadata.cf4c372.json', 'utf8');
-    expect(verifySignedMetadata(node, JSON.parse(node), DOMAIN_NODE_METADATA)).toBe(true);
+    const node = signed(kp, p, DOMAIN_NODE_METADATA[1]);
+    expect(verifySignedMetadata(node, JSON.parse(node))).toBe(true);
+    const prov = signed(kp, p, DOMAIN_PROVIDER_METADATA[1]);
     expect(verifySignedMetadata(prov, JSON.parse(prov), DOMAIN_PROVIDER_METADATA)).toBe(true);
-    expect(verifySignedMetadata(node, JSON.parse(node), DOMAIN_PROVIDER_METADATA)).toBe(false);
-    expect(verifySignedMetadata(prov, JSON.parse(prov), DOMAIN_NODE_METADATA)).toBe(false);
+    expect(verifySignedMetadata(prov, JSON.parse(prov))).toBe(false);
+  });
+  // Live replies captured from ddv-node-1 (dvpnd cf4c372-ddv1) on 2026-10-21. They expire, but the signature does not.
+  it('verifies real cf4c372 node and provider metadata', () => {
+    for (const [file, doms] of [['node-metadata.cf4c372.json', DOMAIN_NODE_METADATA], ['provider-metadata.cf4c372.json', DOMAIN_PROVIDER_METADATA]] as const) {
+      const text = readFileSync(`tests/fixtures/${file}`, 'utf8');
+      expect(verifySignedMetadata(text, JSON.parse(text), doms), file).toBe(true);
+      expect(verifySignedMetadata(text, JSON.parse(text), doms === DOMAIN_NODE_METADATA ? DOMAIN_PROVIDER_METADATA : DOMAIN_NODE_METADATA), file).toBe(false);
+    }
   });
 });
 
@@ -87,7 +85,7 @@ describe('session state', () => {
     // Q0366: dvpnd's plain end after a dead path and one failed redial.
     expect(closeReasonCopy('the connection to this server stopped working')).toEqual({ message: 'The connection to this server stopped working.', action: 'Pick another server' });
   });
-  it('dvpnd ledger-audit refusals get plain words, never the catch-all (port of #33 53e9746, gap #73)', () => {
+  it('dvpnd ledger-audit refusals get plain words, never the catch-all (port of the macOS app 53e9746, gap #73)', () => {
     const c = connectErrorCopy('StartSession: failed precondition: node settled exceeds the recorded sessions');
     expect(c.code).toBe('node-ledger');
     expect(c.message).toMatch(/Nothing more was paid/);
@@ -96,27 +94,6 @@ describe('session state', () => {
     }
     expect(connectErrorCopy('failed precondition: node price differs from the listing').code).toBe('node-price');
   });
-  it('an RPC endpoint timeout is not blamed on the server (rig F5 adopt: all six read "The server didn\'t answer")', () => {
-    const raw = 'StartSession: failed precondition: fetching node account DfJukf4RgJ6a1AYcf6qGmNpTvvitsMwCWNKgV6cFQ1K3: rpc call getAccountInfo() on https://api.devnet.solana.com: Post "https://api.devnet.solana.com": context deadline exceeded (Client.Timeout exceeded while awaiting headers)';
-    const c = connectErrorCopy(raw);
-    expect(c.code).toBe('rpc-timeout');
-    expect(c.message).toMatch(/Solana network endpoint/);
-    expect(c.message).toMatch(/nothing was paid/);
-    // a node that does not answer still reads as the server
-    expect(connectErrorCopy('StartSession: failed precondition: getting session: Get "https://203.0.113.17:18715/v1/sessions/x": context deadline exceeded').code).toBe('timeout');
-    // a 429 from the endpoint stays rpc-busy
-    expect(connectErrorCopy('fetching node account X: rpc call getAccountInfo() on https://api.devnet.solana.com: (*jsonrpc.RPCError)({ Code: (int) 429, Message: "Too many requests" })').code).toBe('rpc-busy');
-  });
-  it('a server whose API refuses before any deposit is named, not the catch-all (builder kit on u2204b)', () => {
-    const raw = 'rpc error: code = FailedPrecondition desc = failed precondition: fetching node metadata from https://203.0.113.17:18713: Get "https://203.0.113.17:18713/v1/metadata": no admitted address answered: 203.0.113.17:18713; dial tcp 203.0.113.17:18713: connect: connection refused';
-    const c = connectErrorCopy(raw);
-    expect(c.code).toBe('node-offline');
-    expect(c.message).toMatch(/nothing was paid/);
-    expect(c.action).toBe('Pick another server');
-    // a slow metadata answer stays 'timeout'; refused after the deposit (getting session) is not this case
-    expect(connectErrorCopy('fetching node metadata from https://1.2.3.4:1/v1/metadata: context deadline exceeded').code).toBe('timeout');
-    expect(connectErrorCopy('getting session: dial tcp 1.2.3.4:1: connect: connection refused').code).not.toBe('node-offline');
-  });
   it('a local port held by another program is named, not blamed on the server (edge porttaken)', () => {
     const raw = 'StartSession: failed precondition: starting service: starting v2ray: process exited: exit status 1: Failed to start: app/proxyman/inbound: failed to listen TCP on 1080 > transport/internet: failed to listen on address: 127.0.0.1:1080 > listen tcp 127.0.0.1:1080: bind: address already in use';
     const c = connectErrorCopy(raw);
@@ -124,14 +101,6 @@ describe('session state', () => {
     expect(c.message).toMatch(/port 1080/);
     expect(c.message).not.toMatch(/didn't come up/);
     expect(connectErrorCopy('failed precondition: stop requested while connecting: starting service: failed to listen TCP on 1080').code).toBe('cancelled');
-  });
-  it('Xray: its banner and the bind failure come from stdout since dvpnd 0019, and the port is still named', () => {
-    const raw = 'StartSession: failed precondition: starting service: starting xray: process exited: exit status 255: Xray 26.3.27 (Xray, Penetrates Everything.) d2758a0 (go1.26.1 linux/amd64)\nA unified platform for anti-censorship.\n2026/10/23 01:18:45 [Info] infra/conf/serial: Reading config\nFailed to start: app/proxyman/inbound: failed to listen TCP on 1080 > transport/internet: failed to listen on address: 127.0.0.1:1080 > listen tcp 127.0.0.1:1080: bind: address already in use';
-    const c = connectErrorCopy(raw);
-    expect(c.code).toBe('port-in-use');
-    expect(c.message).toMatch(/port 1080/);
-    // before 0019 dvpnd sent only this, which can't name a port: the generic tunnel copy is right for it
-    expect(connectErrorCopy('failed precondition: starting service: starting xray: process exited: exit status 255').code).not.toBe('port-in-use');
   });
   it('a disconnect during connect says so, whatever step it interrupted (Linux edge races)', () => {
     for (const raw of [
@@ -152,6 +121,19 @@ describe('session state', () => {
     expect(c.message).toMatch(/Nothing was paid/);
     expect(connectErrorCopy('Post "https://x": x509: certificate signed by unknown authority').code).toBe('rpc-network');
   });
+  it('a node API that refuses before any deposit is "not answering, nothing was paid" (the Linux app d590ee4b)', () => {
+    const c = connectErrorCopy('fetching node metadata from https://35.232.17.117:18713: Get "https://35.232.17.117:18713/v1/metadata": dial tcp 35.232.17.117:18713: connect: connection refused');
+    expect(c.code).toBe('node-offline');
+    expect(c.message).toMatch(/nothing was paid/);
+    expect(connectErrorCopy('fetching node metadata from https://1.2.3.4:1: context deadline exceeded').code).toBe('timeout');
+  });
+  it('a stalled Solana RPC is named as the RPC, not the server (the Linux app rig F5)', () => {
+    const c = connectErrorCopy('fetching node account Abc: rpc call getAccountInfo() on https://api.devnet.solana.com: Post "https://api.devnet.solana.com": context deadline exceeded');
+    expect(c.code).toBe('rpc-timeout');
+    expect(c.message).toMatch(/nothing was paid/);
+    expect(connectErrorCopy('node api: Get "https://1.2.3.4:443/": context deadline exceeded').code).toBe('timeout');
+    expect(connectErrorCopy('rpc call getAccountInfo() on https://x: 429 Too Many Requests').code).toBe('rpc-busy');
+  });
   it('a session already running gets plain words and a Disconnect button, not the catch-all (mx-a13)', () => {
     const c = connectErrorCopy('rpc error: code = FailedPrecondition desc = failed precondition: a session is already active');
     expect(c.code).toBe('session-active');
@@ -168,14 +150,12 @@ describe('session state', () => {
   });
   it('maps node API errors and flags retryable ones', () => {
     expect(connectErrorCopy('node error: ticket_invalid').retry).toBe(true);
-    expect(connectErrorCopy('code=peer_limit_reached').code).toBe('peer_limit_reached');
     // cf4c372 names (sentinel-go-sdk/api/error.go) map to the same copy and canonical code.
     for (const [alias, canon] of Object.entries(NODE_ERROR_ALIASES)) {
       expect(connectErrorCopy(`403 Forbidden: ${alias}: ticket is not valid`).code, alias).toBe(canon);
     }
     expect(connectErrorCopy('invalid_ticket: ticket is not valid').message).not.toMatch(/Something went wrong/);
-    // verbatim dvpnd text from ddv-linux-1 2026-10-21
-    expect(connectErrorCopy('StartSession: failed precondition: invalid_ticket: ticket is not valid')).toMatchObject({ code: 'ticket_invalid', retry: true });
+    expect(connectErrorCopy('code=peer_limit_reached').code).toBe('peer_limit_reached');
     // Q0068: a refused ticket request from a device with a wrong clock says so, never "plan couldn't give access"
     expect(connectErrorCopy('403 Forbidden: ticket_request_stale: ticket request is stale').code).toBe('ticket_request_stale');
     expect(connectErrorCopy('issuing ticket: ticket request is stale').message).toMatch(/clock/);

@@ -16,8 +16,9 @@ const isCli = (r: Row) => r.file.startsWith('src/cli/');
 // "connect <node> [--basis] …", "--units must be …" (FlagError, any file), "unknown: wallet X"
 const isUsage = (r: Row) => r.kind === 'throw' && (/^--/.test(r.text) || (isCli(r) && /^(unknown:|[a-z][\w-]*( [\w$<[{-]|$))/.test(r.text)));
 const limitFor = (r: Row) => (['toast', 'banner'].includes(r.kind) || isCli(r) ? 180 : 300);
-// The Settings screen labels its sections "Solana RPC" and "VPN service → RPC", so a message that
-// sends the person there may use the same word (glossary rule 10 beats the jargon list here).
+// The Settings screen used to label its sections "Solana RPC" and "VPN service → RPC" (now "Solana connection
+// (this app)" and "Solana connection for the VPN service"); a message that still names RPC beside Settings is let
+// through here (glossary rule 10 beats the jargon list).
 const namesSetting = (r: Row, i: CopyIssue) => i.rule === '1-jargon' && i.detail === '"RPC"' && /Settings/.test(r.text);
 // A quoted CLI command ("daemon set --dns cloudflare --yes") is something to type, not prose: the
 // glossary lets the CLI name daemon/dvpnd in commands to run.

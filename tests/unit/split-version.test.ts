@@ -3,7 +3,7 @@
 // dvpnd cf4c-2038a5f-pin, which applied the split: the check read a ddv build number from the tag and
 // a pin/release tag has none. Only a tag that names an older ddv build may say "newer".
 import { describe, it, expect } from 'vitest';
-import { ddv, daemonSupportsSplit, daemonFixesKillSwitch, splitNotApplied } from '../../src/core/session/state';
+import { ddv, daemonSupportsSplit, daemonFixesKillSwitch, splitNotApplied, killSwitchBlocksProtocol } from '../../src/core/session/state';
 
 const NEWER = /needs a newer VPN service/;
 const ROUTE = ['wireguard', 'amneziawg', 'openvpn', 'hysteria2'];
@@ -30,6 +30,23 @@ describe('dvpnd build from its tag', () => {
     for (const tag of [null, undefined, '', 'cf4c372']) {
       expect(ddv(tag), String(tag)).toBe(0);
       expect(daemonSupportsSplit(tag)).toBe(false);
+    }
+  });
+});
+
+// the Windows app Windows (DIR 10-30): with the old rule a release tag without "ddv" read as build 0, and the kill
+// switch REFUSED WireGuard, AmneziaWG and OpenVPN against the very dvpnd that fixes it (gap another project).
+describe('Windows kill switch x protocol from the real tags', () => {
+  const KS_PROTOCOLS = ['wireguard', 'amneziawg', 'openvpn'];
+  it('pin and combined-build tags never refuse a protocol', () => {
+    for (const tag of ['cf4c-276fca5-pin', 'cf4c-2038a5f-pin', 'cf4c372-ddv18.37-cb-final', 'cf4c372-ddv18.37-rc4', 'cf4c-20879d1-lab-split']) {
+      for (const p of KS_PROTOCOLS) expect(killSwitchBlocksProtocol('win32', 'on', p, tag), `${tag} ${p}`).toBeNull();
+      expect(splitNotApplied({ daemonVersion: tag, service: 'wireguard', killSwitch: 'on', platform: 'win32' }), tag).toBeNull();
+    }
+  });
+  it('a dvpnd older than the fix (ddv4, or no tag) still refuses', () => {
+    for (const tag of ['cf4c372-ddv4', '', null]) {
+      for (const p of KS_PROTOCOLS) expect(killSwitchBlocksProtocol('win32', 'on', p, tag), String(tag)).not.toBeNull();
     }
   });
 });

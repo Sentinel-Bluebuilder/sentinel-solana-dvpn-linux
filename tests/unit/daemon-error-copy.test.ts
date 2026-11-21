@@ -1,6 +1,7 @@
 // Q0433 / Q0453 (TLX2, final3 131d3a2): raw gRPC text from the VPN service reached the user. The exact
 // strings TLX2 captured now read as one plain sentence; anything unrecognised is left alone.
 import { describe, expect, it } from 'vitest';
+import fs from 'node:fs';
 import { daemonErrorCopy } from '../../src/core/daemon/link-copy';
 import { connectErrorCopy } from '../../src/core/session/state';
 import { cliActionHint } from '../../src/cli/action-hint';
@@ -41,7 +42,9 @@ describe('daemon error copy', () => {
   });
   it('our own link error (service stopped mid-command) reads as not running', () => {
     expect(daemonErrorCopy('client status: 14 UNAVAILABLE: No connection established. Last error: connect ECONNREFUSED /var/lib/sentinel-dvpn/c0/daemon.sock'))
-      .toMatchObject({ code: 'service-down', message: 'The VPN service is not running.' });
+      .toMatchObject({ code: 'service-down', message: 'The VPN service is off.' });
+    // L-31: the sentence the owner asked to be gone is in no copy this file returns.
+    expect(fs.readFileSync('src/core/daemon/link-copy.ts', 'utf8')).not.toMatch(/message: '[^']*is not running/);
   });
   it('negative controls: unrelated errors and SOL fees are left alone', () => {
     expect(daemonErrorCopy('node said: rate_limited')).toBeNull();

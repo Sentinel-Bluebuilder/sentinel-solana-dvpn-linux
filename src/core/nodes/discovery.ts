@@ -8,7 +8,7 @@ import net from 'node:net';
 import { allNodes, nodeByPda, signerAuthorized } from '../chain/accounts';
 import { fetchConfig } from '../chain/program';
 import { PERM_SIGN_NODE_METADATA, PROGRAM_ID, STATUS_LISTED } from '../chain/idl';
-import { httpsRequest, parseUri, verifySignedMetadata } from './nodeapi';
+import { httpsRequest, parseUri, signedPayload, verifySignedMetadata } from './nodeapi';
 import { countryName, continentOf, countryNameToCode } from './country';
 
 export interface NodeRecord {
@@ -124,19 +124,20 @@ export async function probeNode(node: Pick<NodeRecord, 'address' | 'owner' | 'ur
     city: null, serviceType: null, version: null, error: null, probedAt: Date.now(),
   };
   const target = parseUri(nodeApiOverride(node.address) ?? node.uri);
-  if (!target) { out.error = 'Node address on chain is not a valid URL'; return out; }
-  if (!(await tcpReachable(target.host, target.port, Math.min(timeoutMs, 6000)))) { out.error = 'Node is not reachable'; return out; }
+  if (!target) { out.error = "This server's listed address is not a valid URL"; return out; }
+  if (!(await tcpReachable(target.host, target.port, Math.min(timeoutMs, 6000)))) { out.error = 'Server is not reachable'; return out; }
   let res;
   try {
     res = await httpsRequest(`${target.origin}/v1/metadata`, { timeoutMs, captureCert: true });
   } catch (err) {
-    out.error = `Node did not answer: ${(err as Error).message}`;
+    out.error = `Server did not answer: ${(err as Error).message}`;
     return out;
   }
   out.latencyMs = res.latencyMs;
-  if (res.status !== 200 || !res.json) { out.error = `Node answered HTTP ${res.status}`; return out; }
+  if (res.status !== 200 || !res.json) { out.error = `Server answered HTTP ${res.status}`; return out; }
   out.reachable = true;
-  const m = (res.json.payload ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  // C31-1: the claims come from the signed text, never from JSON.parse's (last) payload member.
+  const m = (signedPayload(res.text) ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   out.signatureValid = verifySignedMetadata(res.text, res.json);
   out.signerIsOwner = res.json.signer === node.owner;
   // cf4c372 VerifyMetadata: the payload names its signer as `operator` (the owner too, when it signs).
@@ -146,8 +147,8 @@ export async function probeNode(node: Pick<NodeRecord, 'address' | 'owner' | 'ur
   out.tlsPinMatch = pin && res.certSha256 ? pin === res.certSha256.toLowerCase() : null;
   out.peers = m.peers ? Number(m.peers.current) : null;
   out.maxPeers = m.peers ? Number(m.peers.max) : null;
-  // cf4c372: *_bytes_per_second; dfe36c7: download/upload
   if (m.bandwidth) {
+    // bytes/s: cf4c372 names them *_bytes_per_second, dfe36c7 download/upload.
     out.downloadMbps = Math.round((Number(m.bandwidth.download_bytes_per_second ?? m.bandwidth.download ?? 0) * 8 / 1e6) * 100) / 100;
     out.uploadMbps = Math.round((Number(m.bandwidth.upload_bytes_per_second ?? m.bandwidth.upload ?? 0) * 8 / 1e6) * 100) / 100;
   }
@@ -159,16 +160,16 @@ export async function probeNode(node: Pick<NodeRecord, 'address' | 'owner' | 'ur
     try {
       out.signerAuthorized = await signerAuthorized(node.owner, res.json.signer, PERM_SIGN_NODE_METADATA, node.address);
     } catch (err) {
-      authError = `Could not check the node operator's permission: ${(err as Error).message}`;
+      authError = `Could not check that the server's operator may sign for it: ${(err as Error).message}`;
     }
   }
-  if (!out.signatureValid) out.error = 'Node metadata signature is invalid';
+  if (!out.signatureValid) out.error = "The server's signed details have a bad signature";
   else if (authError) out.error = authError;
-  else if (!out.signerAuthorized) out.error = 'Node metadata is signed by neither the node owner nor an operator it allowed';
-  else if (!out.claimsMatch) out.error = 'Node metadata does not match its on-chain account';
-  else if (out.metadataExpired) out.error = 'Node metadata has expired';
-  else if (out.tlsPinMatch === false) out.error = 'Node TLS certificate does not match its pin';
-  else if (out.maxPeers !== null && out.peers !== null && out.maxPeers > 0 && out.peers >= out.maxPeers) out.error = 'Node is full';
+  else if (!out.signerAuthorized) out.error = "The server's details are signed by neither its owner nor an operator it allowed";
+  else if (!out.claimsMatch) out.error = "The server's signed details do not match its listing";
+  else if (out.metadataExpired) out.error = "The server's signed details have expired";
+  else if (out.tlsPinMatch === false) out.error = "The server's security certificate does not match its listing";
+  else if (out.maxPeers !== null && out.peers !== null && out.maxPeers > 0 && out.peers >= out.maxPeers) out.error = 'Server is full';
   else if (hasRealityTransport(m.service)) out.error = 'Transport not supported (REALITY)';
   out.ok = out.error === null;
   return out;

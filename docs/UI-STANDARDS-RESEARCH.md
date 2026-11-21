@@ -178,7 +178,7 @@ Sources: [Proton VPN Windows app](https://protonvpn.com/support/protonvpn-window
 [progressive onboarding](https://www.pendo.io/pendo-blog/onboarding-progressive-disclosure/),
 [elementary OS onboarding](https://blog.elementary.io/get-settled-into-elementary-os-with-onboarding/).
 
-## Linux (#32) — what Linux VPN apps do, and our gaps
+## Linux (the Linux app) — what Linux VPN apps do, and our gaps
 
 Researched 2026-10-22 for the Linux build (owner standard S1). The Windows sections above still
 set the page shapes; this section records where Linux differs.
@@ -205,6 +205,6 @@ Sources: [Mullvad CLI](https://mullvad.net/help/how-use-mullvad-cli/),
   and the page says why (Windows lets the left-out traffic through).
 
 ### We will (Linux)
-1. Same page shapes, logos, Apply bar, live lanes and blocking state as Windows (ported from #31).
+1. Same page shapes, logos, Apply bar, live lanes and blocking state as Windows (ported from the Windows app).
 2. Copy that never promises an app choice Linux can't do; address-range wording on both pages.
 3. Proof through the real app on a VM: `scripts/e2e/linux/split-ui.sh split|ks <protocol>`, real exit IPs.

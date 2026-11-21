@@ -54,6 +54,8 @@ export const IPC = {
   DAEMON_INIT: 'daemon:init',
   RESTORE_NETWORK: 'daemon:restore-network',
   DRIVERS_REPAIR: 'drivers:repair',
+  SERVICE_UNINSTALL: 'daemon:uninstall',
+  DISCARD_SETUP: 'device:discard-setup',
   // spend
   CONNECT: 'session:connect',
   DISCONNECT: 'session:disconnect',
@@ -66,6 +68,12 @@ export const IPC = {
   CHANNEL_FUND: 'channel:fund',
   SEND: 'wallet:send',
   NODE_TEST_RUN: 'node-test:run',
+  // Android's per-app / per-address split (the VPN service applies it, not dvpnd). Handled only by the
+  // Android main (src/android); the desktop screens never call them (SplitTunnel routes to its desktop page).
+  SPLIT_GET: 'split:get',
+  SPLIT_APPS: 'split:apps',
+  SPLIT_SET: 'split:set',
+  SPLIT_ROUTES_SET: 'split:routes',
 } as const;
 
 export type IpcChannel = typeof IPC[keyof typeof IPC];
@@ -120,6 +128,8 @@ export const TIERS: Record<IpcChannel, Tier> = {
   [IPC.DAEMON_INIT]: 'privileged',
   [IPC.RESTORE_NETWORK]: 'privileged',
   [IPC.DRIVERS_REPAIR]: 'privileged',
+  [IPC.SERVICE_UNINSTALL]: 'privileged',
+  [IPC.DISCARD_SETUP]: 'local',
   [IPC.CONNECT]: 'spend',
   [IPC.DISCONNECT]: 'spend',
   [IPC.DEVICE_SETUP]: 'spend',
@@ -131,6 +141,10 @@ export const TIERS: Record<IpcChannel, Tier> = {
   [IPC.CHANNEL_FUND]: 'spend',
   [IPC.SEND]: 'spend',
   [IPC.NODE_TEST_RUN]: 'spend',
+  [IPC.SPLIT_GET]: 'readonly',
+  [IPC.SPLIT_APPS]: 'readonly',
+  [IPC.SPLIT_SET]: 'local',
+  [IPC.SPLIT_ROUTES_SET]: 'local',
 };
 
 /** Main → renderer push events. */
@@ -140,6 +154,8 @@ export const EVENTS = {
   PROBE: 'evt:probe',
   TOAST: 'evt:toast',
   NODE_TEST: 'evt:node-test',
+  /** Driver repair progress lines (macOS Homebrew installs run for minutes to an hour). */
+  DRIVERS: 'evt:drivers',
   /** Main asks the window to show a screen (the tray's "Connect again…" opens Home). */
   GO: 'evt:go',
 } as const;

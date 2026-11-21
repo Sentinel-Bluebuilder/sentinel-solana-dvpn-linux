@@ -24,7 +24,7 @@ vi.mock('../../src/core/chain/accounts', () => ({
 vi.mock('../../src/core/nodes/nodeapi', async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   verifySignedMetadata: () => true,
-  httpsRequest: async () => ({ status: 200, latencyMs: 5, text: '{}', certSha256: 'ab', json: { payload: st.payload, signer: st.signer } }),
+  httpsRequest: async () => ({ status: 200, latencyMs: 5, text: JSON.stringify({ payload: st.payload, signer: st.signer }), certSha256: 'ab', json: { payload: st.payload, signer: st.signer } }) // C31-1: the text is the body; claims are read from it,
 }));
 const { probeNode } = await import('../../src/core/nodes/discovery');
 const { providerApi } = await import('../../src/core/plans/plans');
@@ -74,14 +74,14 @@ describe('probeNode signer', () => {
     st.auth = 'no';
     const r = await probe();
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/neither the node owner nor an operator it allowed/);
+    expect(r.error).toMatch(/signed by neither its owner nor an operator it allowed/);
   });
 
   it('a payload whose operator is not its signer is refused', async () => {
     nodePayload(operator, Keypair.generate().publicKey.toBase58());
     const r = await probe();
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/does not match its on-chain account/);
+    expect(r.error).toMatch(/signed details do not match its listing/);
   });
 
   it('a failed grant lookup leaves the node unverified, not usable', async () => {
@@ -89,7 +89,7 @@ describe('probeNode signer', () => {
     st.auth = 'throw';
     const r = await probe();
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/Could not check the node operator's permission: rpc 429/);
+    expect(r.error).toMatch(/Could not check that the server's operator may sign for it: rpc 429/);
   });
 });
 

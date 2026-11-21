@@ -1,5 +1,5 @@
 // ─── Test signer from TEST_KEYFILE ───
-// Reads the #28 devnet wallet key file IN PLACE (never copied). The file has no
+// Reads the the protocol devnet wallet key file IN PLACE (never copied). The file has no
 // mnemonic — it is the only copy besides its offline backup.
 import { readFileSync } from 'node:fs';
 import { Keypair, type TransactionInstruction } from '@solana/web3.js';

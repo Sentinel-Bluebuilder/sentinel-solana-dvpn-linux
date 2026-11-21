@@ -5,11 +5,12 @@
 # `dns = 'none'` would let the service change system DNS again. Run as root by the package's
 # postinst (upgrade) and by setup-daemon.sh. Idempotent: a key is renamed only when its new name
 # is not already in the file. Keeps one .pre-migrate backup; mode and owner are preserved.
-# Same renames as #31's migrate-daemon-config.ps1. Plus one value: kill_switch 'on' -> 'persist' (below).
+# Same renames as the Windows app's migrate-daemon-config.ps1. Plus one value: kill_switch 'on' -> 'persist' (below).
 # Two home shapes: pre-cb33 (/var/lib/dvpnd/client: config.toml + client/config.toml) and cb33
 # (/var/lib/sentinel-dvpn/c0: ONE config.toml, where the "client/config.toml" rows below apply too).
 # Usage: migrate-daemon-config.sh [--DaemonHome /var/lib/sentinel-dvpn/c0]
 set -uo pipefail
+source "$(dirname "$(readlink -f "$0")")/_lib.sh"   # atomic_write (D6)
 HOME_DIR=/var/lib/sentinel-dvpn/c0
 [ "${1:-}" = --DaemonHome ] && HOME_DIR="${2:-}"
 case "$(readlink -m -- "$HOME_DIR")/" in
@@ -42,12 +43,12 @@ for rel in $(printf '%s
     grep -qE "^[[:space:]]*${new}[[:space:]]*=" "$tmp" && continue
     sed -i -E "s/^([[:space:]]*)${old}([[:space:]]*=)/\\1${new}\\2/" "$tmp"
   done <<< "$RENAMES"
-  # Kill switch "on" -> "persist" (Q0426, same as #33 97eb1077): dvpnd's "on" lifts the block whenever
+  # Kill switch "on" -> "persist" (Q0426, same as the macOS app 97eb1077): dvpnd's "on" lifts the block whenever
   # the service stops, so a restart or an update sent traffic direct. The app has one "On" = persist;
   # this moves configs written before (and dvpnd init's default) here, before the service starts.
   # "off" and "persist" are left alone. Except once after an uninstall: uninstall-cleanup.sh stepped
   # persist down to "on" and left KS_MARK, so this one start releases the block row the kept home
-  # still holds (#31 #84) instead of cutting the machine off; the marker is used up here.
+  # still holds (the Windows app #84) instead of cutting the machine off; the marker is used up here.
   if [ "$rel" = "$CLIENT_REL" ]; then
     if [ -e "$HOME_DIR/$KS_MARK" ]; then
       rm -f -- "$HOME_DIR/$KS_MARK"
@@ -58,7 +59,8 @@ for rel in $(printf '%s
   fi
   if ! cmp -s "$f" "$tmp"; then
     cp -p -- "$f" "$f.pre-migrate"
-    cat "$tmp" > "$f"   # rewrite in place: owner, mode and ACLs of $f stay as they were
+    # D6 (AUDIT-FINAL the Linux app): a power loss mid-`cat >` left a cut config; atomic_write keeps owner, mode and ACL too
+    atomic_write "$tmp" "$f" || { echo "migrate-daemon-config: could not write $f" >&2; rm -f -- "$tmp"; exit 1; }
     changed=$((changed + 1))
     echo "migrated $f"
   fi

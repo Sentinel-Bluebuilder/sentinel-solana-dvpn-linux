@@ -1,14 +1,17 @@
 // ─── dvpnd gRPC client (client role) ───
 // Shape ported from plans-solana lib/daemon.js (grpc-js + proto-loader options,
 // deadlines, gRPC status mapping). Targets:
-//   Linux    unix:///var/lib/sentinel-dvpn/c0/daemon.sock  (cb33: systemd's socket, 0660, group sentinel-dvpn)
-//   dev rig  127.0.0.1:<port>   (a TCP bridge to a daemon socket in a netns)
+//   Windows  unix:\\.\pipe\ProtectedPrefix\Administrators\sentinel-dvpn\c0   (named pipe; group sentinel-dvpn)
+//   Linux    unix:///<home>/daemon.sock
+//   dev rig  127.0.0.1:<port>   (a bridge to a WSL daemon socket)
 // The app never builds tunnels, edits the firewall or signs vouchers: it asks dvpnd.
 import * as grpc from '@grpc/grpc-js';
 import * as protoLoader from '@grpc/proto-loader';
+import { daemonEndpoint } from './layout';
 
-/** dvpnd listens on <home>/daemon.sock (daemonv1.SocketFileName). */
-export const SOCKET_FILE = 'daemon.sock';
+// cb33: the client instance c0's pipe (layout.ts daemonEndpoint). Admins + SYSTEM full; the sentinel-dvpn group
+// gets 0x120183 only, so an unelevated app still goes through pipe-bridge.exe.
+export const DEFAULT_WINDOWS_PIPE = daemonEndpoint('win32');
 const DEADLINE_MS = 20_000;
 const START_DEADLINE_MS = 120_000; // StartSession opens a channel on chain + dials the node
 
@@ -27,8 +30,7 @@ export interface DaemonSession {
   channel: string;
   ticketHash: string;
   proxyEndpoint: string;
-  /** Up but degraded (live only): 'large-packets'. Empty or absent (older dvpnd) = all is well. */
-  warning?: string;
+  warning?: string; // live only (Q0357): 'large-packets'; absent from an older dvpnd
   /** A reconnect's new session: the id it replaces. Empty or absent (older dvpnd) = none. */
   replaces?: string;
   /** Unix seconds the reconnect chain's first session started (int64 as string); '0'/absent = startedAt. */
@@ -165,12 +167,12 @@ export class DaemonClient {
   }
 }
 
+/** grpc-js target for a Windows named pipe path (or a unix socket path). */
 /** dvpnd's session.Basis numbers (per_gb = 1, per_hour = 2). Exported for tests. */
 export function startTermsBasis(basis: 'per_gb' | 'per_hour'): number {
   return basis === 'per_hour' ? 2 : 1;
 }
 
-/** grpc-js target for a unix socket path. */
-export function socketTarget(socketPath: string): string {
-  return `unix:${socketPath}`;
+export function pipeTarget(pathOrPipe: string): string {
+  return `unix:${pathOrPipe}`;
 }

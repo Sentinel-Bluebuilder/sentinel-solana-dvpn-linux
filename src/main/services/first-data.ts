@@ -9,13 +9,13 @@ import { flushDnsCache } from '../system/dns-check';
 
 /**
  * WireGuard-family tunnels are "up" before their first handshake (AmneziaWG sends junk
- * packets first: 1-2 s). A page opened in that gap fails and the resolver caches the failed DNS
+ * packets first: 1-2 s). A page opened in that gap fails and Windows caches the failed DNS
  * lookup, so "Connected" was shown while the first requests failed. Wait (at most 8 s) for
  * the first bytes from the node. Never throws: the session is live either way.
  */
 export async function firstData(s: DaemonSession): Promise<void> {
   if (['wireguard', 'amneziawg', 'openvpn'].includes(s.service)) await waitForRx(s);
-  // Every full-tunnel protocol moves the DNS server too; names fail until the resolver applies it.
+  // Every full-tunnel protocol moves the DNS server too; names fail until Windows applies it.
   if (['wireguard', 'amneziawg', 'openvpn', 'hysteria2'].includes(s.service)) {
     flushDnsCache(); // drop failures cached in the gap
     const host = rpcHost();

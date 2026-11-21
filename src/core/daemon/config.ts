@@ -25,7 +25,7 @@ export type SplitMode = 'off' | 'include' | 'exclude';
 /** dvpnd [split] (ddv11+): include = only these use the VPN; exclude = all but these. Apps: V2Ray/Xray only. */
 export interface SplitSettings {
   mode: SplitMode;
-  apps: string[];   // absolute paths to .exe files
+  apps: string[];   // absolute paths: Windows .exe, macOS …/Name.app/Contents/MacOS/<exe>
   routes: string[]; // CIDR, e.g. 10.0.0.0/8
 }
 
@@ -33,25 +33,48 @@ export interface DaemonSettings {
   killSwitch: KillSwitch;
   allowLan: boolean;
   dnsServers: string[];
-  /** How the daemon sets DNS for a session: 'resolvectl' (systemd-resolved), 'resolvconf', or 'none' = never touch system DNS */
+  /** How the daemon sets DNS for a session: the OS backend (DNS_MODES), or 'none' = never touch system DNS */
   dnsMode?: string;
   basis: Basis;
   escrow: string; // base units
   prepayBytes: string;
   prepaySeconds: string;
+  /** V2Ray/Xray: whole computer through a TUN adapter (Windows dvpnd ddv8+, macOS utun -mac1+) vs SOCKS proxy only. */
+  wholeDevice?: boolean;
   rpcUrl: string;
   rpcWsUrl: string;
   /** Split tunnelling; undefined = leave the file as it is. */
   split?: SplitSettings;
 }
 
-export class ConfigError extends Error {
+// ─── RPC URL redaction (FMC-M6) ───
+// A user-set RPC URL can carry a gate token — as a query param (?api-key=…), basic-auth userinfo
+// (user:token@host), or a long opaque path segment (…/v2/<key>). Mask the secret parts while
+// keeping scheme+host, so the `daemon set` confirm echo and the readable `daemon settings` print
+// let the user verify the endpoint without leaking the token to the terminal or logs. Returns the
+// input unchanged when nothing needed masking (so a plain URL shows as-is, with no normalisation).
+export const redactRpcUrl = (u: string): string => {
+  try {
+    const url = new URL(u);
+    let changed = false;
+    if (url.username) { url.username = '***'; changed = true; }
+    if (url.password) { url.password = '***'; changed = true; }
+    for (const k of [...url.searchParams.keys()]) { url.searchParams.set(k, '***'); changed = true; }
+    const path = url.pathname.replace(/\/[A-Za-z0-9_-]{16,}(?=\/?$)/, '/***');
+    if (path !== url.pathname) { url.pathname = path; changed = true; }
+    return changed ? url.toString() : u;
+  } catch {
+    return /@|[?&](api[-_]?key|token|key|gate|secret)=/i.test(u) ? '***' : u;
+  }
+};
+
+export class ConfigError extends ShownError {
   code = 'invalid-daemon-setting';
 }
 
 // ─── TOML value rendering (only the shapes we write) ───
 function tomlString(s: string): string {
-  if (/['\n\r]/.test(s)) throw new ConfigError(`value contains a quote or newline: ${JSON.stringify(s)}`); // copy:internal
+  if (/['\n\r]/.test(s)) throw new ConfigError('A setting value contains a quote or newline: {value}.', { value: JSON.stringify(s) });
   return `'${s}'`;
 }
 
@@ -120,59 +143,97 @@ export function readToml(text: string, section: string, key: string): string | b
 const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
 const IPV6 = /^[0-9a-fA-F:]+$/;
 const DIGITS = /^\d+$/;
-/** dvpnd DNS backends on Linux (config.DNSBackends): resolvectl, resolvconf, none. */
-export const DNS_MODES = ['resolvectl', 'resolvconf', 'none'];
-/** The group dvpnd chowns its control socket to (setup adds the user to it). */
-export const SOCKET_GROUP = 'dvpn';
+/** dvpnd DNS backends (config.DNSBackends): one real backend per OS, plus 'none'. Android: 'vpn' = the VpnService interface's DNS. */
+export const DNS_MODES = ['netsh', 'resolvectl', 'resolvconf', 'networksetup', 'vpn', 'none'];
 
-/** storedRpc: the RPC values are the ones already in the service config (not typed now), so an http:// / ws:// gate
- *  written there by a lab or by hand is kept; quotes, spaces and a bad host are still refused (Q0478, Mac Q0468:
- *  re-checking https on the STORED value made every `daemon set` fail, so the kill switch never persisted). */
-export function validateSettings(s: DaemonSettings, opts: { storedRpc?: boolean } = {}): void {
+/**
+ * The DNS backends dvpnd has on one OS (config.DNSBackends there), plus 'none'. Shared validation accepts every OS's
+ * modes (a config is parsed on any OS in tests); the platform apply paths and the Settings switch use this list, so a
+ * Linux service never gets 'netsh' (its config check refuses it, and the service would not start).
+ */
+/** The OS this code runs on; '' in a renderer, which has no process (the Split page passes its own). */
+const hostPlatform = (): string => (typeof process !== 'undefined' && process.platform ? process.platform : '');
+
+export function dnsModesFor(platform: string = hostPlatform()): string[] {
+  if (platform === 'win32') return ['netsh', 'none'];
+  if (platform === 'darwin') return ['networksetup', 'none'];
+  if (platform === 'linux') return ['resolvectl', 'resolvconf', 'none'];
+  if (platform === 'android') return ['vpn', 'none'];
+  return ['none'];
+}
+/**
+ * The group dvpnd opens its control socket/pipe to ([daemon] socket_group, pre-cb33 layout): the
+ * built-in Users group on Windows; on macOS and Linux the `dvpn` group setup adds the user to.
+ */
+export function socketGroupFor(platform: string = hostPlatform()): string {
+  return platform === 'win32' ? 'Users' : 'dvpn';
+}
+
+/**
+ * `skipRpc`: leave the RPC pair unchecked (daemon set's pre-flight when neither --rpc nor --rpc-ws
+ * changes). `allowInsecureRpc`: the config WRITERS' choice: keeps the character, URL-parse and host
+ * checks on a stored RPC (a quote, newline or bogus host is still refused before it reaches the file,
+ * u2404 fuzz) and relaxes ONLY the protocol (http/ws accepted beside https/wss), so a devnet http-gate
+ * config still persists a KS/DNS-only change (Q0478 / FMC-M7; FLX the Linux app 00a5fbf9 kept on the macOS app).
+ */
+export function validateSettings(s: DaemonSettings, opts: { skipRpc?: boolean; allowInsecureRpc?: boolean } = {}): void {
   if (!['off', 'on', 'persist'].includes(s.killSwitch)) throw new ConfigError('Kill switch must be off, on or persist.');
   if (!['per_gb', 'per_hour'].includes(s.basis)) throw new ConfigError('Basis must be per_gb or per_hour.');
-  if (s.dnsMode !== undefined && !DNS_MODES.includes(s.dnsMode)) throw new ConfigError(`DNS mode must be one of ${DNS_MODES.join(', ')}`);
+  if (s.wholeDevice !== undefined && typeof s.wholeDevice !== 'boolean') throw new ConfigError('Whole device must be true or false.');
+  if (s.dnsMode !== undefined && !DNS_MODES.includes(s.dnsMode)) throw new ConfigError('DNS mode must be one of {modes}.', { modes: DNS_MODES.join(', ') });
   if (!Array.isArray(s.dnsServers) || s.dnsServers.length < 1 || s.dnsServers.length > 4) throw new ConfigError('DNS needs 1 to 4 servers.');
-  for (const d of s.dnsServers) if (!IPV4.test(d) && !(d.includes(':') && IPV6.test(d))) throw new ConfigError(`${d} is not an IP address.`);
-  // Prepay 0 = dvpnd uses the node's minimum block; `dvpnd init` writes 0, so refusing it made every
-  // `daemon set` on a fresh install fail (VM 2026-10-22). Escrow must stay positive.
+  for (const d of s.dnsServers) if (!IPV4.test(d) && !(d.includes(':') && IPV6.test(d))) throw new ConfigError('The DNS server {address} is not an IP address.', { address: d });
+  // `dvpnd init` writes prepay 0 (= the node's minimum block); refusing 0 here blocked EVERY
+  // `daemon set` on a fresh install (the Linux app, clean 24.04 VM). Escrow 0 stays refused.
   if (!DIGITS.test(s.escrow) || BigInt(s.escrow) === 0n || BigInt(s.escrow) > 2n ** 64n - 1n) throw new ConfigError('The deposit must be a positive whole number.');
   for (const [k, v] of [['prepay bytes', s.prepayBytes], ['prepay seconds', s.prepaySeconds]] as const) {
-    if (!DIGITS.test(v) || BigInt(v) > 2n ** 64n - 1n) throw new ConfigError(`${k} must be a whole number (0 = the node's minimum)`);
+    if (!DIGITS.test(v) || BigInt(v) > 2n ** 64n - 1n) throw new ConfigError('The {setting} must be a whole number (0 = the server\'s minimum).', { setting: k });
   }
   if (s.split !== undefined) validateSplit(s.split);
-  for (const [k, v, proto] of [['RPC url', s.rpcUrl, 'https:'], ['RPC websocket url', s.rpcWsUrl, 'wss:']] as const) {
+  // skipRpc (Q0478 / FMC-M7): the config WRITERS carry a stored (possibly http gate) RPC through
+  // without re-imposing https; the https rule is enforced by daemon set's pre-flight only when the
+  // user actually passes --rpc/--rpc-ws. A KS/DNS-only set must not die re-validating an RPC it is
+  // not changing (that blocked the kill switch from ever persisting on an http-gate config).
+  const insecure = opts.allowInsecureRpc === true;
+  if (!opts.skipRpc) for (const [k, v, proto, altProto] of [['RPC url', s.rpcUrl, 'https:', 'http:'], ['RPC websocket url', s.rpcWsUrl, 'wss:', 'ws:']] as const) {
     // new URL() quietly percent-encodes quotes and spaces and turns a backslash into "/", so a
     // value with a quote, a newline and "kill_switch = off" passed and the service sat on a dead
     // RPC (u2404 fuzz 2026-10-22).
-    if (/[\s"'\\<>`\u0000-\u001f\u007f]/.test(v)) throw new ConfigError(`${k} has characters a URL cannot hold (spaces, quotes, backslashes)`);
+    if (/[\s"'\\<>`\u0000-\u001f\u007f]/.test(v)) throw new ConfigError('The {setting} has characters a URL cannot hold (spaces, quotes, backslashes).', { setting: k });
     let u: URL;
     try {
       u = new URL(v);
     } catch (err) {
-      throw new ConfigError(`${k} is not a URL: ${(err as Error).message}`);
+      throw new ConfigError('The {setting} is not a URL: {reason}.', { setting: k, reason: (err as Error).message });
     }
-    const loose = proto === 'https:' ? 'http:' : 'ws:';
-    if (u.protocol !== proto && !(opts.storedRpc && u.protocol === loose)) throw new ConfigError(`${k} must use ${proto}//.`);
-    if (!validHost(u.hostname)) throw new ConfigError(`${k} needs a real host name, got "${u.hostname}"`);
+    const okProtos: string[] = insecure ? [proto, altProto] : [proto];
+    if (!okProtos.includes(u.protocol)) throw insecure ? new ConfigError('The {setting} must use {protocol}// or {alternative}//.', { setting: k, protocol: proto, alternative: altProto }) : new ConfigError('The {setting} must use {protocol}//.', { setting: k, protocol: proto });
+    if (!validHost(u.hostname)) throw new ConfigError('The {setting} needs a real host name, got "{host}".', { setting: k, host: u.hostname });
   }
 }
 
 const CIDR4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}\/(3[0-2]|[12]?\d)$/;
 const CIDR6 = /^[0-9a-fA-F:]+\/(12[0-8]|1[01]\d|[1-9]?\d)$/;
 
-/** Same rules as dvpnd's Split.Validate, so a bad value never reaches the service. */
-export function validateSplit(s: SplitSettings): void {
+/** Same rules as dvpnd's Split.Validate (and its per-OS app rule), so a bad value never reaches the service. */
+export function validateSplit(s: SplitSettings, platform: string = hostPlatform()): void {
   if (!['off', 'include', 'exclude'].includes(s.mode)) throw new ConfigError('Split mode must be off, include or exclude.');
   if (!Array.isArray(s.apps) || !Array.isArray(s.routes)) throw new ConfigError('Split apps and routes must be lists.');
   if (s.apps.length > 64 || s.routes.length > 256) throw new ConfigError('Too many split apps or routes (64 apps, 256 routes).');
   for (const a of s.apps) {
-    if (/['"\n\r]/.test(a)) throw new ConfigError(`Split app path contains a quote or newline: ${JSON.stringify(a)}`);
+    if (/['"\n\r]/.test(a)) throw new ConfigError('Split app path contains a quote or newline: {path}.', { path: JSON.stringify(a) });
     const windows = /^[A-Za-z]:[\\/]|^\\\\/.test(a);
-    if (!windows && !a.startsWith('/')) throw new ConfigError(`Split app must be a full path: ${a}`);
-    if (windows && !/\.exe$/i.test(a)) throw new ConfigError(`Split app must be an .exe file: ${a}`);
+    if (!windows && !a.startsWith('/')) throw new ConfigError('Split app must be a full path: {path}.', { path: a });
+    if (windows && !/\.exe$/i.test(a)) throw new ConfigError('Split app must be an .exe file: {path}.', { path: a });
+    // dvpnd's macOS rule (service/split.go macAppExecutable): refused here, before the admin prompt,
+    // instead of dvpnd failing to start and the settings being rolled back (the macOS app).
+    if (platform === 'darwin' && !windows && !/^\/.+\.app\/Contents\/MacOS\/[^/]+$/.test(a)) {
+      throw new ConfigError('Split app must be an app\'s own program, like {example} (pick it from the app list): {path}.', { example: '/Applications/Name.app/Contents/MacOS/Name', path: a });
+    }
+    // the one unsplittable app today is Safari (core/split/apps.ts SAFARI_SPLIT_COPY: same sentence, same key)
+    if (unsplittableReason(a)) throw new ConfigError('Safari can’t be chosen: its pages load in shared system processes. Use address ranges, or a browser like Chrome or Firefox.');
   }
-  for (const r of s.routes) if (!CIDR4.test(r) && !(r.includes(':') && CIDR6.test(r))) throw new ConfigError(`Split route must be an IP address or range like 10.0.0.0/8, not a name (sites behind a CDN change addresses): ${r}`);
+  for (const r of s.routes) if (!CIDR4.test(r) && !(r.includes(':') && CIDR6.test(r))) throw new ConfigError('Split route must be an IP address or range like {example}, not a name (sites behind a CDN change addresses): {route}.', { example: '10.0.0.0/8', route: r });
   if (s.mode !== 'off' && !s.apps.length && !s.routes.length) throw new ConfigError('Split include/exclude needs at least one app or route.');
 }
 
@@ -192,26 +253,28 @@ export function removeTomlKey(text: string, section: string, key: string): strin
  * block whenever the service stops (a restart or an update sends traffic direct), and the two
  * differ only there (session.go: a user disconnect releases both, a lost connection keeps both).
  * So the app has one "On" (= persist) and never writes "on". The same rename runs on existing
- * configs in migrate-daemon-config.sh before the service starts.
+ * configs in the platform's migrate-daemon-config script before the service starts.
  */
 export function writtenKillSwitch(k: KillSwitch): KillSwitch {
   return k === 'on' ? 'persist' : k;
 }
 
 /** Apply settings to the two files' text (pre-cb33 layout). Returns new text for both. */
-export function renderConfigs(rootToml: string, clientToml: string, s: DaemonSettings): { root: string; client: string } {
-  validateSettings(s, { storedRpc: true }); // new RPC values are checked strictly before they get here
-  const root = patchToml(renderRootPart(rootToml, s), 'daemon', 'socket_group', SOCKET_GROUP);
+/** `socketGroup`: the caller's platform group (socketGroupFor); Windows' Users by default. */
+export function renderConfigs(rootToml: string, clientToml: string, s: DaemonSettings, socketGroup = 'Users'): { root: string; client: string } {
+  validateSettings(s, { allowInsecureRpc: true });
+  const root = patchToml(renderRootPart(rootToml, s), 'daemon', 'socket_group', socketGroup);
   return { root, client: renderClientPart(clientToml, s) };
 }
 
 /**
  * cb33 layout: apply settings to the ONE instance config.toml. Its root sections ([rpc]) and client
  * keys (top level, [network], [split]) never share a name, so both parts patch the same text. cb33 has
- * no socket_group (the service unit sets the socket group): a value left from an old home is dropped.
+ * no socket_group (Windows: an Administrators-only pipe; macOS/Linux: the service sets the socket group):
+ * a value left from an old home is dropped.
  */
 export function renderConfig(text: string, s: DaemonSettings): string {
-  validateSettings(s, { storedRpc: true }); // new RPC values are checked strictly before they get here
+  validateSettings(s, { allowInsecureRpc: true });
   return renderClientPart(removeTomlKey(renderRootPart(text, s), 'daemon', 'socket_group'), s);
 }
 
@@ -249,12 +312,25 @@ function renderClientPart(clientToml: string, s: DaemonSettings): string {
   return client;
 }
 
+/** The V2Ray/Xray service configs (client/<svc>/config.toml) whole-device mode lives in. */
+export const TUN_SERVICES = ['v2ray', 'xray'] as const;
+
+/** Set `tun` (top level) in a V2Ray/Xray service config. */
+export function renderServiceConfig(serviceToml: string, wholeDevice: boolean): string {
+  return patchToml(serviceToml, '', 'tun', wholeDevice);
+}
+
+/** Whole-device is on only when every present V2Ray/Xray config says tun = true. */
+export function parseWholeDevice(serviceTomls: ReadonlyArray<string>): boolean | undefined {
+  if (!serviceTomls.length) return undefined;
+  return serviceTomls.every((t) => readToml(t, '', 'tun') === true);
+}
+
 export function parseSettings(rootToml: string, clientToml: string): Partial<DaemonSettings> {
   const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
   return {
     killSwitch: str(readToml(clientToml, 'network', 'kill_switch')) as KillSwitch | undefined,
     allowLan: readToml(clientToml, 'network', 'allow_lan') === true,
-    // An old Handshake list (2 servers) reads as today's preset, so the next save writes 3 (Q0267).
     dnsServers: upgradeDnsServers((readToml(clientToml, 'network', 'dns_servers') as string[] | null) ?? undefined),
     dnsMode: str(readToml(clientToml, 'network', 'dns_backend')) ?? str(readToml(clientToml, 'network', 'dns')),
     basis: str(readToml(clientToml, '', 'basis')) as Basis | undefined,
@@ -265,6 +341,20 @@ export function parseSettings(rootToml: string, clientToml: string): Partial<Dae
     rpcWsUrl: str(readToml(rootToml, 'rpc', 'ws_url')),
     split: parseSplit(clientToml),
   };
+}
+
+/**
+ * Q0365: a saved DNS list equal to an older preset (the 2-server Handshake list) is shown upgraded (parseSettings)
+ * but stays old in dvpnd's own file until the user saves Settings, so the tunnel never gets the Q0267 fallback.
+ * Returns the client config with the list upgraded, or null when nothing needs writing. Android writes it once per
+ * app start with no session (its config is the app's own file); a desktop OS may call it from its apply path.
+ */
+export function upgradeClientDns(clientToml: string): string | null {
+  const raw = readToml(clientToml, 'network', 'dns_servers');
+  if (!Array.isArray(raw)) return null;
+  const up = upgradeDnsServers(raw as string[]);
+  if (!up || up.join(',') === raw.join(',')) return null;
+  return patchToml(clientToml, 'network', 'dns_servers', up);
 }
 
 function parseSplit(clientToml: string): SplitSettings | undefined {
@@ -278,9 +368,11 @@ function parseSplit(clientToml: string): SplitSettings | undefined {
   return { mode: (known ? mode : 'off') as SplitMode, apps, routes };
 }
 
-export { DNS_PRESETS } from './dns-presets';import { validHost } from '../net/host';
+export { DNS_PRESETS } from './dns-presets';
 import { upgradeDnsServers } from './dns-presets';
-
+import { unsplittableReason } from '../split/apps';
+import { validHost } from '../net/host';
+import { ShownError } from '../../shared/i18n/shown-error';
 
 // ─── Carry settings to a new device home (fleet-bugs W3) ───
 // A wallet switch makes a fresh `dvpnd init` home with dvpnd's defaults, so a user who had turned
@@ -325,4 +417,14 @@ export function carrySettingsInto(old: { root: string; client: string }, fresh: 
   const ks = readToml(out, 'network', 'kill_switch');
   if (ks === 'on') out = patchToml(out, 'network', 'kill_switch', writtenKillSwitch('on'));
   return removeTomlKey(out, 'daemon', 'socket_group');
+}
+
+/**
+ * Validation for the app/CLI apply path (settings.ts applyDaemonSettings). An RPC carried through
+ * unchanged from the stored config keeps working on a devnet http gate; a NEWLY typed RPC is held to the
+ * strict https/wss rule (Q0468 / Q0478, 3rd call site).
+ */
+export function validateForApply(next: DaemonSettings, stored: Partial<DaemonSettings>): void {
+  const unchanged = next.rpcUrl === stored.rpcUrl && next.rpcWsUrl === stored.rpcWsUrl;
+  validateSettings(next, unchanged ? { allowInsecureRpc: true } : {});
 }

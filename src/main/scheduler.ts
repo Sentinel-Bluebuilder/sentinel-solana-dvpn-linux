@@ -3,26 +3,28 @@
 // Everything else is polled here; non-session polls pause while hidden.
 import { getRpcState } from '../core/chain/rpc';
 import { refreshWallet } from './services/wallet';
-import { refreshNodes, nodesAge, findNode } from './services/nodes';
-import { sessionsKnown, adoptRunningSession, outsideCheckShown, reconcileShownSession } from './services/connection';
-import { readSettlements } from './services/settlement';
+import { refreshNodes, nodesAge, findNode, recheckDue } from './services/nodes';
+import { sessionsKnown, adoptRunningSession, checkLeftoverBlock, connectRunningElsewhere, reconcileShownSession } from './services/connection';
+import { autoRefundIdle, readSettlements } from './services/settlement';
 import { refreshSubscriptions, refreshPlans } from './services/plans';
 import { daemonInfo, onDaemonChange } from './daemon/manager';
+import { onTransitionBegan, onTransitionSettled, serviceInTransition } from './services/service-transition';
 import { patch, snapshot, setIpChecksOff } from './app-state';
 import { loadHomeIp, saveHomeIp } from './home-ip';
 import { log } from './logger';
 import { publicIp } from '../core/quality/quality';
 import { getSettings } from './system/settings';
+import { systemProxyLive } from './system/proxy';
 import { getDaemonSettings, splitExcludedRoutes } from './daemon/settings';
 import { dnsLabel } from '../core/daemon/dns-presets';
 import { DEFAULT_POLL, type PollJob } from '../shared/poll';
+import { isAndroid } from '../shared/is-android';
 
 /** The job's cadence from settings (read live, so a change applies on the next tick). */
 export function pollMs(name: PollJob): number {
   return (getSettings().poll?.[name] ?? DEFAULT_POLL[name]) * 1000;
 }
 const IP_LOOK_MS = 5000;
-const OUTSIDE_LOOK_MS = 2000;
 /** The IPv4 literal in a node's https://host:port uri, or null for a name. */
 export function hostOf(uri: string): string | null {
   const m = /^https?:\/\/(\d{1,3}(?:\.\d{1,3}){3})(?::\d+)?/.exec(uri);
@@ -34,15 +36,21 @@ export const HIDDEN_MIN_MS = 15 * 60_000;
 export const IDLE_SETTLE_MIN_MS = 10 * 60_000;
 /** A job returns this when it looked and had nothing to do: not reported as a run. */
 const SKIPPED = Symbol('skipped');
+/** While another process connects, the session job runs every second, so its dvpnd tunnel check
+ *  ("Checking the connection…", a few seconds) shows here too, not only for a connect started in the
+ *  app (Q0357, DIR: TAN saw it missing on a CLI connect). */
+export const ELSEWHERE_SESSION_MS = 1000;
+export function sessionEveryMs(baseMs: number, connectingElsewhere: boolean): number {
+  return connectingElsewhere ? Math.min(baseMs, ELSEWHERE_SESSION_MS) : baseMs;
+}
+
 function everyMs(j: Job): number {
   if (j.name === 'ip') return IP_LOOK_MS;
   let ms = pollMs(j.name);
+  if (j.name === 'session') ms = sessionEveryMs(ms, connectRunningElsewhere());
   const s = snapshot();
   if (j.name === 'settlements' && !s.session && (s.settlements?.length ?? 0) === 0) ms = Math.max(ms, IDLE_SETTLE_MIN_MS);
   if (hidden && j.whenHidden) ms = Math.max(ms, HIDDEN_MIN_MS);
-  // No session shown: look every 2 s at most, so a connect started elsewhere shows its tunnel
-  // check ("Checking the connection…", up to ~9 s) instead of being found only once live (Q0357).
-  if (j.name === 'session' && !s.session) ms = Math.min(ms, OUTSIDE_LOOK_MS);
   return ms;
 }
 
@@ -65,7 +73,7 @@ const jobs: Job[] = [
   { name: 'nodes', whenHidden: false, run: () => refreshNodes(), last: 0, busy: false },
   { name: 'plans', whenHidden: false, run: refreshPlans, last: 0, busy: false },
   { name: 'subscriptions', whenHidden: false, run: refreshSubscriptions, last: 0, busy: false },
-  { name: 'settlements', whenHidden: true, run: readSettlements, last: 0, busy: false },
+  { name: 'settlements', whenHidden: true, run: async () => { await readSettlements(); await autoRefundIdle(); }, last: 0, busy: false },
   {
     // F5.9: public IP every poll.ip s while connected (and right after a session changes), once when idle.
     // The job itself is looked at every 5 s; it decides whether a check is due.
@@ -85,13 +93,22 @@ const jobs: Job[] = [
       ipForSession = sid;
       // Proxy (V2Ray/Xray) sessions leave system traffic direct: measure the VPN exit
       // through the session's SOCKS endpoint, which is the IP sites see for proxied apps.
-      const socks = s.session?.proxyEndpoint || undefined;
-      // Exclude split: never ask an IP service the split leaves out (it would see the user's own IP).
+      // Android: every app is inside the tunnel (tun2socks); the probe socket measures it (D-A4).
+      const socks = isAndroid() ? undefined : s.session?.proxyEndpoint || undefined;
+      // Exclude split: never ask an IP service the split leaves out (it would answer with the user's own IP and the
+      // screen would say the VPN is not used; the Linux app VM 2026-10-22). Platform export on every OS ([] when no exclude split).
       const avoid = sid && !socks ? splitExcludedRoutes(s.session?.service) : [];
-      const r = await publicIp(6000, socks, avoid);
-      // Also the direct exit for proxy sessions: apps that ignore the proxy leave by that IP.
-      const d = socks ? await publicIp(6000) : null;
-      const directIp = d && 'ip' in d ? d.ip : null;
+      // Q0387: with a session shown, Android measures only through the tunnel; mid-redial that is no
+      // answer ("checking…"), never the phone's own IP labelled "Sites see".
+      // Also the direct exit for proxy sessions: apps that ignore the proxy leave by that IP. Started together
+      // with the proxy check and NOT awaited before the first patch (Q0527, Mac KSM13: with the kill switch on,
+      // the direct probe waits out its 6 s timeout, so `status`, whose IP check gets 2.5 s, said "Connected,
+      // checking…" for every proxy session). The proxy answer alone decides proxy coverage (core/session/coverage).
+      const directRead = socks
+        ? publicIp(6000).catch((err: unknown) => { log.warn('direct IP check failed', { err: (err as Error).message }); return { error: (err as Error).message } as const; })
+        : null;
+      const r = await publicIp(6000, socks, avoid, { tunnelOnly: isAndroid() && sid !== null });
+      const directIp = null as string | null;
       // Not connected: this is the user's own IP, the reference for "is traffic really going
       // through the VPN" (core/session/coverage). Kept on disk for sessions adopted at start.
       if (sid && 'ip' in r && r.ip !== snapshot().homeIp) lastVpnIp = r.ip;
@@ -100,6 +117,11 @@ const jobs: Job[] = [
       if (!sid && 'ip' in r && r.ip !== lastVpnIp && sessionsKnown() && !snapshot().session) saveHomeIp(r.ip);
       const nodeIp = s.session ? hostOf(findNode(s.session.node)?.uri ?? '') : null;
       patch({ publicIp: 'ip' in r ? { ip: r.ip, source: r.source, at: Date.now(), viaProxy: !!socks, directIp, sid, nodeIp } : null });
+      if (!directRead || !('ip' in r)) return;
+      const dr = await directRead;
+      const now = snapshot().publicIp;
+      // Only onto the same reading (a newer check or a session change wins).
+      if ('ip' in dr && now && now.sid === sid && now.ip === r.ip) patch({ publicIp: { ...now, directIp: dr.ip } });
     },
   },
   {
@@ -112,25 +134,41 @@ const jobs: Job[] = [
   },
   {
     // A session started elsewhere (the CLI, another window) while the app is open: without this
-    // the screen kept "Connect" until the app restarted (found by #34 Android grid A5, a5a6972).
+    // the screen kept "Connect" until the app restarted (found by the Android app Android grid A5, a5a6972).
     // Only while the app is idle — never during its own connect/disconnect — and one local
     // daemon call; a session the app already shows is followed by its own stream instead.
     name: 'session', whenHidden: false, last: 0, busy: false,
     run: async () => {
       const s = snapshot();
-      // Q0361: a shown session is checked against dvpnd's list (its stream can miss the end).
+      // Q0351: the proxy can be turned off (or on again) outside the app; follow the live setting.
+      if (s.session) {
+        try {
+          const live = await systemProxyLive();
+          if (live !== s.proxyActive) patch({ proxyActive: live });
+        } catch (err) {
+          log.warn('reading the system proxy failed', { err: (err as Error).message });
+        }
+      }
+      // Q0361/Q0366 (FAN fc10fc1): a shown session is checked against dvpnd's list; its stream can miss
+      // the end, and the app stayed on Connected or Reconnecting after dvpnd gave up.
       if (s.session) return daemonInfo().reachable && await reconcileShownSession() ? undefined : SKIPPED;
-      // An outside connect being checked is followed by this poll too (no session to stream yet).
-      if (!daemonInfo().reachable || (s.conn.phase !== 'idle' && s.conn.phase !== 'error' && !outsideCheckShown())) return SKIPPED;
-      // startedElsewhere: its deposit stays open when it ends, as the CLI intends (reuse, #34 F9.2).
-      await adoptRunningSession({ applyProxy: true, startedElsewhere: true });
+      if (!daemonInfo().reachable || (s.conn.phase !== 'idle' && s.conn.phase !== 'error')) return SKIPPED;
+      // startedElsewhere: its deposit stays open when it ends, as the CLI intends (reuse, the Android app F9.2).
+      // Android: no system proxy (every protocol runs inside the VpnService).
+      await adoptRunningSession({ applyProxy: !isAndroid(), startedElsewhere: true });
+      // AND-34 KSM13 blk × ks-off, CLI arm: kill switch Off applied from ANOTHER process (the CLI) restarts the
+      // service in ~2 s with no session here, so this app saw no transition and its blocked view stayed up for
+      // good. While a blocked view is shown, every session poll asks again (it is taken down once the block is gone).
+      const after = snapshot();
+      if (!after.session && after.conn.phase === 'error' && after.conn.restoreNetwork) await checkLeftoverBlock();
     },
   },
   {
     name: 'rpc', whenHidden: false, last: 0, busy: false,
     run: async () => {
       const s = await getRpcState();
-      patch({ rpc: { serving: s.serving ?? null, healthy: s.slot !== null, publicOnly: !!s.publicOnly } });
+      // UI-169: a private endpoint over its limit is said once (Settings, Diagnostics), not silently worked around.
+      patch({ rpc: { serving: s.serving ?? null, healthy: s.slot !== null, publicOnly: !!s.publicOnly, privateOverLimit: !!s.privateOverLimit, inUse: s.inUse ?? 'public', since: s.overLimitSince ?? null } });
     },
   },
 ];
@@ -144,17 +182,25 @@ export function newSessionStarted(prev: string | null, next: string | null): boo
   return next !== null && next !== prev;
 }
 let settleForSession: string | null = null;
+/** A session ended: its deposit is no longer "in use" and the Connect dialog must see it as reusable now. */
+export function sessionEnded(prev: string | null, next: string | null): boolean {
+  return prev !== null && next === null;
+}
 
 async function tick(): Promise<void> {
   const now = Date.now();
   // Q0339: connect, then open Activity: the new deposit (and its Top up) was missing for up to 60 s.
   const sid = snapshot().session?.id ?? null;
-  if (newSessionStarted(settleForSession, sid)) { const s = jobs.find((x) => x.name === 'settlements'); if (s) s.last = 0; }
+  if (newSessionStarted(settleForSession, sid) || sessionEnded(settleForSession, sid)) { const s = jobs.find((x) => x.name === 'settlements'); if (s) s.last = 0; }
   settleForSession = sid;
+  // Row 145 (UI-SCREENS): a server check that has aged out (10 min) is redone within a minute while the window
+  // is visible, and at most once a minute when the network read keeps failing.
+  const recheck = recheckDue(now);
+  if (recheck) { const n = jobs.find((x) => x.name === 'nodes'); if (n && !n.busy && now - n.last > 60_000) n.last = 0; }
   for (const j of jobs) {
     const every = everyMs(j);
     if (j.busy || now - j.last < every || (hidden && !j.whenHidden)) continue;
-    if (j.name === 'nodes' && nodesAge() < every) { j.last = now; continue; }
+    if (j.name === 'nodes' && nodesAge() < every && !recheck) { j.last = now; continue; }
     j.busy = true;
     j.last = now;
     const started = Date.now();
@@ -174,8 +220,12 @@ async function tick(): Promise<void> {
 
 export function startScheduler(): void {
   if (timer) return;
-  onDaemonChange(() => patch({ daemon: daemonInfo() }));
-  patch({ daemon: daemonInfo() });
+  // The screens show 'restarting' (not 'not answering… Install service' or 'sign out') while it restarts (Q0520/Q0521).
+  const daemonView = (): void => patch({ daemon: { ...daemonInfo(), transition: serviceInTransition() } });
+  onDaemonChange(daemonView);
+  onTransitionBegan(daemonView);
+  onTransitionSettled(daemonView);
+  daemonView();
   timer = setInterval(() => void tick(), TICK_MS);
   void tick();
 }
@@ -193,7 +243,6 @@ export function setHidden(h: boolean): void {
 export function refreshNow(...names: string[]): void {
   for (const j of jobs) if (!names.length || names.includes(j.name)) j.last = 0;
   void tick();
-  void snapshot;
 }
 
 /** Each job, its cadence now and whether it keeps running while the window is hidden. */

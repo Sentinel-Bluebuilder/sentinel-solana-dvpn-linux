@@ -1,9 +1,9 @@
 // ─── P0 spike 3: every new owner-signed builder lands on devnet ───
-// Spends from the #28 devnet wallet (TEST_KEYFILE). Sequential, 7 s between txs.
+// Spends from the the protocol devnet wallet (TEST_KEYFILE). Sequential, 7 s between txs.
 // Channels created here are recorded in tests/devnet/state.json so the voucher
 // channel can be closed after the 7200 s grace (tests/devnet/p0-settle.test.ts).
 //
-//   TEST_KEYFILE=…/sentinel-solana/keys/devnet/client.json P0_DEVICE=<device pubkey> npx vitest run tests/devnet/p0-builders.test.ts
+//   TEST_KEYFILE=<your devnet key file> P0_DEVICE=<device pubkey> npx vitest run tests/devnet/p0-builders.test.ts
 import { describe, it, expect } from 'vitest';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';

@@ -8,6 +8,7 @@ import { keypairFromInput, keypairFromMnemonic, newMnemonic } from '../../core/w
 import { keypairSigner, type OwnerSigner } from '../../core/app/signer';
 import { getHost } from '../host';
 import { log } from '../logger';
+import { ShownError, tr } from '../../shared/i18n';
 
 let cached: Keypair | null = null;
 
@@ -22,12 +23,28 @@ export function ownerKeypair(): Keypair | null {
 }
 
 export function ownerAddress(): string | null {
-  return ownerKeypair()?.publicKey.toBase58() ?? null;
+  // Q0567: never decrypt only to show the address; signing (ownerKeypair/ownerSigner) still does.
+  if (cached) return cached.publicKey.toBase58();
+  return getHost().keyStore.address?.() ?? ownerKeypair()?.publicKey.toBase58() ?? null;
+}
+
+/**
+ * The answer when there is no owner to sign with. rc.4 E-18: a --keyfile / DVPN_KEYFILE wallet whose file
+ * is gone is not "no wallet": setting up a new one would leave the funds with the lost key.
+ */
+export function noWallet(): { error: string; code: 'no-wallet' | 'keyfile-missing' } {
+  const ks = getHost().keyStore;
+  if (ks.kind === 'keyfile' && !ks.exists()) {
+    // One sentence with the path as its only placeholder (UI-LANG wraps it as one key in rc.4).
+    const path = ks.path || 'named by --keyfile or DVPN_KEYFILE';
+    return { error: tr('The key file {path} is missing: restore it from your backup. Nothing was paid.', { path }), code: 'keyfile-missing' };
+  }
+  return { error: tr('Set up a wallet first.'), code: 'no-wallet' };
 }
 
 export function ownerSigner(): OwnerSigner {
   const kp = ownerKeypair();
-  if (!kp) throw new Error('Set up a wallet first.');
+  if (!kp) throw new ShownError('Set up a wallet first.');
   return keypairSigner(kp);
 }
 
@@ -37,7 +54,7 @@ function refuseIfWallet(incoming?: string): void {
   if (getHost().keyStore.kind === 'keyfile') return;
   const cur = ownerAddress();
   if (!cur || cur === incoming) return;
-  throw new Error(`A wallet is already set up on this computer (${cur}). Back up its recovery phrase, log out, then try again. Nothing was changed.`);
+  throw new ShownError('A wallet is already set up on this computer ({address}). Back up its recovery phrase, log out, then try again. Nothing was changed.', { address: cur });
 }
 
 /** New 24-word wallet. Returns the phrase once for the backup screen. */

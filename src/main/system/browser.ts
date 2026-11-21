@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { storePath } from '../store';
 import { log } from '../logger';
+import { webUrl } from '../../shared/web-url';
 
 export type BrowserName = 'chrome' | 'chromium' | 'edge';
 export const BROWSERS: BrowserName[] = ['chrome', 'chromium', 'edge'];
@@ -34,6 +35,9 @@ export function findBrowser(name: BrowserName, exists: (p: string) => boolean = 
 /** Command-line flags. Exported for tests: the DNS rule is what keeps lookups off this computer. */
 export function browserArgs(endpoint: string, profileDir: string, url: string): string[] {
   if (!/^127\.0\.0\.1:\d{2,5}$/.test(endpoint)) throw new Error(`"${endpoint}" is not a local SOCKS endpoint.`);
+  // W31-16 (rc9-c2): the page is a web address only, after Chromium's end-of-switches marker, so it can never be a flag.
+  const page = webUrl(url);
+  if (!page) throw new Error('the page to open is not an http(s) web address'); // copy:internal (the CLI refuses first)
   return [
     `--proxy-server=socks5://${endpoint}`,
     // Chrome resolves names itself unless every host is mapped away; with this rule the SOCKS5
@@ -44,7 +48,8 @@ export function browserArgs(endpoint: string, profileDir: string, url: string): 
     '--no-default-browser-check',
     '--disable-quic', // QUIC is UDP; a SOCKS5 proxy here carries TCP only.
     '--new-window',
-    url,
+    '--',
+    page,
   ];
 }
 

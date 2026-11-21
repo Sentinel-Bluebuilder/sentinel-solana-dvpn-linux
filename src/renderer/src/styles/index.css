@@ -35,6 +35,8 @@
   --red: 255 90 95;
   --red-soft: rgba(255, 90, 95, 0.12);
   --glass: rgba(18, 20, 23, 0.72);
+  --scroll: rgba(255, 255, 255, 0.16);
+  --scrim: rgba(0, 0, 0, 0.62);
   color-scheme: dark;
 }
 
@@ -58,6 +60,8 @@
     --yellow: 146 98 0;        /* ≥ 4.5:1 on white (was 176 120 0 = 3.8:1) */
     --red: 196 36 44;         /* ≥ 4.5:1 on its soft tint (was 214 48 56 = 4.0:1) */
     --glass: rgba(255, 255, 255, 0.78);
+    --scroll: rgba(10, 20, 40, 0.22);
+    --scrim: rgba(14, 16, 20, 0.38);
     color-scheme: light;
   }
 }
@@ -90,6 +94,8 @@
   --yellow: 146 98 0;        /* ≥ 4.5:1 on white (was 176 120 0 = 3.8:1) */
   --red: 196 36 44;         /* ≥ 4.5:1 on its soft tint (was 214 48 56 = 4.0:1) */
   --glass: rgba(255, 255, 255, 0.78);
+  --scroll: rgba(10, 20, 40, 0.22);
+  --scrim: rgba(14, 16, 20, 0.38);
   color-scheme: light;
 }
 
@@ -121,31 +127,50 @@ table td, table th, .num { font-variant-numeric: tabular-nums; }
   /* A <summary> that opens a section: no browser marker, a chevron on the right that turns open. */
   .disclosure { list-style: none; }
   .disclosure::-webkit-details-marker { display: none; }
-  .disclosure::after { content: ''; margin-left: auto; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; opacity: .6; transform: rotate(45deg) translate(-2px, -2px); transition: transform .15s; }
+  .disclosure::after { content: ''; margin-inline-start: auto; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; opacity: .6; transform: rotate(45deg) translate(-2px, -2px); transition: transform .15s; }
   details[open] > .disclosure::after { transform: rotate(-135deg) translate(-2px, -2px); }
   @media (prefers-reduced-motion: reduce) { .disclosure::after { transition: none; } }
   .btn {
-    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded px-4 text-ctl transition-all duration-150 disabled:cursor-not-allowed disabled:opacity-45;
+    @apply inline-flex h-10 items-center justify-center gap-2 whitespace-nowrap rounded px-4 text-ctl transition-all duration-press disabled:cursor-not-allowed disabled:opacity-45;
   }
+  /* Pressed: every button answers the press at once (UI-065). Not while disabled. */
+  .btn:active:not(:disabled) { transform: translateY(1px) scale(0.985); }
   /* Primary = the Solana gradient; ink on it is near-black (rule: never white on accent). */
   .btn-primary { @apply btn bg-sol font-semibold text-sol-ink hover:shadow-glow hover:brightness-110 active:brightness-95; }
   /* Disabled primary: a flat neutral button, not a faded gradient (which reads as broken). */
   .btn-primary:disabled { @apply bg-none bg-bg-hover text-fg-muted opacity-100 shadow-none brightness-100; }
-  .btn-ghost { @apply btn border border-line bg-bg-raised/40 text-fg hover:border-line-strong hover:bg-bg-hover; }
+  .btn-ghost { @apply btn border border-line bg-bg-raised/40 text-fg hover:border-line-strong hover:bg-bg-hover active:bg-bg-raised; }
   .btn-danger { @apply btn border border-bad/40 bg-bad-soft text-bad hover:bg-bad hover:text-white; }
+  /* One focus style everywhere (UI-062): the global :focus-visible outline; the field only firms its border. */
   .input {
-    @apply h-10 w-full rounded border border-line bg-bg-input px-3 text-sm text-fg outline-none transition-colors placeholder:text-fg-muted focus:border-accent/70 focus:shadow-[0_0_0_3px_var(--accent-soft)];
+    @apply h-10 w-full rounded border border-line bg-bg-input px-3 text-sm text-fg transition-colors duration-state placeholder:text-fg-muted hover:border-line-strong focus:border-accent/70;
   }
-  select.input { @apply pr-8; }
+  /* A select looks like the inputs beside it: no native arrow, our chevron (UI-067). */
+  select.input {
+    @apply cursor-pointer appearance-none pe-9;
+    background-image: linear-gradient(45deg, transparent 50%, rgb(var(--text-muted)) 50%), linear-gradient(135deg, rgb(var(--text-muted)) 50%, transparent 50%);
+    background-position: calc(100% - 17px) 55%, calc(100% - 12px) 55%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+  }
+  /* An rtl page: the chevron moves to the start edge, same shape (first half first, 5 px apart). */
+  [dir='rtl'] select.input { background-position: 12px 55%, 17px 55%; }
+  /* A list row that can be clicked or scanned: one hover for every list and table (UI-065). */
+  .row { @apply transition-colors duration-press hover:bg-bg-hover; }
+  /* Hero status title: one line when it fits, balanced when it must wrap (UI-066). */
+  .hero-title { @apply font-display text-hero; text-wrap: balance; }
+  /* Overlay behind every dialog: one scrim, one blur (UI-026). */
+  .scrim { @apply fixed inset-0 z-40 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in; background: var(--scrim); }
+  .sheet { @apply card-raised w-full rounded-xl p-6 shadow-overlay animate-sheet-enter; }
   /* Label: 10 / 500 / uppercase / 0.08em, dim. */
   .label { @apply mb-2 block text-label uppercase text-fg-muted; }
   .section-title { @apply font-display text-section text-fg; }
   .pill { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-meta font-medium; }
   .mono { @apply font-mono text-xs; }
-  .chip { @apply inline-flex h-10 items-center gap-2 rounded-[10px] border border-line-strong bg-bg-raised px-3 text-ctl tabular-nums; }
+  .chip { @apply inline-flex h-10 items-center gap-2 rounded border border-line-strong bg-bg-raised px-3 text-ctl tabular-nums; }
   .sol-text { @apply bg-sol bg-clip-text text-transparent; }
-  .devnet-badge { @apply inline-flex items-center gap-2 rounded-full border border-warn/40 bg-warn-soft px-2 py-0.5 text-label font-semibold uppercase text-warn; }
-  .tab { @apply h-8 rounded-[8px] px-3 text-ctl text-fg-dim transition-colors hover:bg-bg-hover hover:text-fg; }
+  .devnet-badge { @apply inline-flex h-10 min-w-0 items-center gap-2.5 rounded-lg border border-warn/40 bg-warn-soft px-3 text-meta leading-none text-warn; }
+  .tab { @apply h-8 rounded px-3 text-ctl text-fg-dim transition-colors duration-press hover:bg-bg-hover hover:text-fg; }
   /* Compact control for row actions (Copy, Top up): 32 px, same family as .btn. */
   .btn-sm { @apply h-8 px-3 text-meta font-medium; }
   /* Page column: centred in the window, 1200 px at most, so the page head and the content share
@@ -154,18 +179,39 @@ table td, table th, .num { font-variant-numeric: tabular-nums; }
   .prose-cap { max-width: 65ch; }
   /* Section: title left (18/500, sentence case), its actions right, 24 px between sections. */
   .section { @apply mb-6; }
-  .section-head { @apply mb-3 flex min-h-8 items-center justify-between gap-4; }
+  /* Q0495: the right-hand buttons wrap under the title on a phone (Export CSV ran to right=471 at font 1.3). */
+  .section-head { @apply mb-3 flex min-h-8 flex-wrap items-center justify-between gap-x-4 gap-y-2; }
   /* Stat strip: equal cells split by hairlines; label 10 caps over a 20 px value. */
-  .stat-strip { @apply mb-6 grid overflow-hidden rounded-lg border border-line bg-bg-card; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
-  .stat-cell { @apply min-w-0 border-l border-line px-4 py-3 first:border-l-0; }
-  /* Data table: header row, 48 px rows, text left, numbers right (.n). */
+  /* Session facts under the status: equal cells, label over value, centered (owner 2026-11-12). */
+  .info-grid { @apply mb-4 grid gap-px overflow-visible rounded-lg border border-line bg-line; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+  .info-cell { @apply flex min-w-0 flex-col items-center justify-start gap-1 bg-bg-card px-3 py-3 text-center text-sm; }
+  .info-cell > span:first-child { @apply text-label uppercase leading-none; }
+  .stat-strip { @apply mb-6 grid rounded-lg border border-line bg-bg-card; /* never clip: a clipped strip cut off its (?) popups */ grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; }
+  /* Centered: label, amount, note stacked in the middle of equal-height cells (owner 2026-11-12). */
+  .stat-cell { @apply flex min-w-0 flex-col items-center justify-start border-s border-line px-4 py-4 text-center first:border-s-0; }
+  /* Three fixed rows so every card in a strip lines up: label (with its (?)), value, note. */
+  .stat-label { @apply flex h-5 items-center justify-center gap-1.5 text-label uppercase leading-none text-fg-muted; }
+  .stat-value { @apply mt-1.5 font-display text-value leading-tight [overflow-wrap:break-word]; }
+  /* Q0495: a phone (or large text) gets two columns, so an amount and its unit never break mid-number. */
+  @media (max-width: 520px) {
+    .stat-strip { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat-cell:nth-child(odd) { border-inline-start-width: 0; }
+    .stat-cell:nth-child(n+3) { @apply border-t border-line; }
+  }
+  .stat-note { @apply mt-1 text-meta leading-5 text-fg-muted; }
+  /* Data table (owner 2026-11-12: "equidistant", "properly aligned"): the first column left, every other
+     column centered under its header, header and cells always the same alignment; an actions column
+     (.w-px) sits right. Numbers (.n) keep tabular digits. */
   .dtable { @apply w-full border-collapse text-sm; }
-  .dtable th { @apply h-8 border-b border-line px-4 text-left text-label font-medium uppercase text-fg-muted; }
-  .dtable td { @apply h-12 border-b border-line px-4 align-middle; }
+  .dtable th { @apply h-8 border-b border-line px-4 text-center text-label font-medium uppercase text-fg-muted; }
+  .dtable td { @apply h-12 border-b border-line px-4 text-center align-middle; }
+  .dtable th:first-child, .dtable td:first-child { @apply text-start; }
+  .dtable th.w-px, .dtable td.w-px { @apply text-end; }
   .dtable tr:last-child td { @apply border-b-0; }
-  .dtable .n { @apply text-right tabular-nums; }
+  .dtable tbody tr { @apply transition-colors duration-press hover:bg-bg-hover; }
+  .dtable .n { @apply tabular-nums; }
   /* Filter toggle as a chip (a real checkbox inside the label). */
-  .toggle-chip { @apply inline-flex h-10 cursor-pointer select-none items-center gap-2 rounded-[10px] border border-line px-3 text-sm text-fg-dim transition-colors hover:border-line-strong hover:text-fg has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-45; }
+  .toggle-chip { @apply inline-flex h-10 cursor-pointer select-none items-center gap-2 rounded border border-line px-3 text-sm text-fg-dim transition-colors hover:border-line-strong hover:text-fg has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-45; }
   .toggle-chip-on { @apply border-accent/50 bg-accent-soft text-fg; }
   /* One-line empty state inside its section; .empty-box is the same line in its own bordered box. */
   .empty-line { @apply px-4 py-3 text-sm text-fg-muted; }
@@ -177,7 +223,20 @@ table td, table th, .num { font-variant-numeric: tabular-nums; }
 input[type='checkbox'], input[type='radio'] { accent-color: rgb(var(--sol-purple)); }
 :focus-visible { outline: 2px solid rgb(var(--sol-purple)); outline-offset: 2px; }
 ::selection { background: rgb(var(--sol-purple) / 0.35); }
-* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent; }
+/* Theme-aware: the old fixed white thumb was invisible in the light theme (UI-060). */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+/* UI-023: the part of a page a banner or error sent you to is outlined once. */
+[data-section] { scroll-margin-top: 16px; border-radius: 12px; }
+[data-section][data-flash] { animation: section-flash 1800ms ease-out; }
+@keyframes section-flash { 0%, 60% { box-shadow: 0 0 0 2px rgb(var(--accent)); } 100% { box-shadow: 0 0 0 2px transparent; } }
+
+/* Banner stack (UI-010): a banner opens and closes its own height, so the page below slides, never jumps. */
+.banner-slot { display: grid; grid-template-rows: 1fr; animation: banner-in 180ms ease-out; }
+.banner-slot > div { min-height: 0; overflow: hidden; }
+.banner-slot[data-leaving] { animation: banner-out 180ms ease-in forwards; pointer-events: none; }
+@keyframes banner-in { from { grid-template-rows: 0fr; opacity: 0; } to { grid-template-rows: 1fr; opacity: 1; } }
+@keyframes banner-out { from { grid-template-rows: 1fr; opacity: 1; } to { grid-template-rows: 0fr; opacity: 0; } }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

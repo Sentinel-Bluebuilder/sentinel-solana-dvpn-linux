@@ -3,6 +3,7 @@
 // devnet program (upstream cb33092e since 11-02) numbers its errors exactly as the bundled
 // IDL does (the old 6022–6038 shift is gone). Branch on NUMBERS, translate here.
 import { loadIdl } from './idl';
+import { ShownError, tr } from '../../shared/i18n';
 
 export interface ProgramErrorDesc {
   code: number;
@@ -30,7 +31,8 @@ const ANCHOR_FRAMEWORK: Record<number, [string, string]> = {
   2012: ['ConstraintAddress', 'an address constraint was violated'],
   2014: ['ConstraintTokenMint', 'a token mint constraint was violated'],
   2015: ['ConstraintTokenOwner', 'a token owner constraint was violated'],
-  2019: ['ConstraintAccountIsNone', 'a required account was not provided'],
+  2019: ['ConstraintSpace', 'a space constraint was violated'], // Anchor 1.2.2 lang/error: 2019 = ConstraintSpace (review, the agent kit)
+  2020: ['ConstraintAccountIsNone', 'a required account was not provided'],
   3005: ['AccountDidNotSerialize', 'failed to serialize the account'],
   3007: ['AccountOwnedByWrongProgram', 'the given account is owned by a different program than expected'],
   3012: ['AccountNotInitialized', 'the program expected this account to be already initialized'],
@@ -43,7 +45,7 @@ export function describeProgramError(code: number): ProgramErrorDesc {
   if (hit) return { ...hit, code: n };
   const fw = ANCHOR_FRAMEWORK[n];
   if (fw) return { code: n, name: fw[0], message: fw[1] };
-  return { code: n, name: `Program error ${n}`, message: '' };
+  return { code: n, name: tr('Program error {n}', { n }), message: '' };
 }
 
 /** Code → number lookup by name (so callers can branch on a NAME safely). */
@@ -91,13 +93,27 @@ export function describeInstructionError(errObj: unknown): string | null {
   const s = typeof errObj === 'string' ? errObj : safeJson(errObj ?? '');
   // Solana raises this for ANY account left between 0 and its rent minimum — usually the sender
   // (seen 2026-10-20: sending nearly all SOL from a wallet to an existing account).
-  if (/InsufficientFundsForRent/.test(s)) return 'This would leave an account below Solana\'s minimum balance (about 0.001 SOL). Send a little less.';
-  if (/InsufficientFunds/.test(s)) return 'Insufficient funds';
-  if (/AccountNotFound/.test(s)) return 'The fee payer has no SOL';
-  if (/BlockhashNotFound/.test(s)) return 'The transaction expired before it landed — try again';
-  if (/AlreadyProcessed|already been processed/i.test(s)) return 'Transaction already processed';
-  if (/ProgramFailedToComplete|ComputationalBudgetExceeded/.test(s)) return 'Compute budget exceeded';
+  if (/InsufficientFundsForRent/.test(s)) return tr('This would leave an account below Solana\'s minimum balance (about 0.001 SOL). Send a little less.');
+  if (/InsufficientFunds/.test(s)) return tr('Insufficient funds');
+  if (/AccountNotFound/.test(s)) return tr('The fee payer has no SOL');
+  if (/BlockhashNotFound/.test(s)) return tr('The transaction expired before it landed. Try again.');
+  if (/AlreadyProcessed|already been processed/i.test(s)) return tr('Transaction already processed');
+  if (/ProgramFailedToComplete|ComputationalBudgetExceeded/.test(s)) return tr('Compute budget exceeded');
+  // A token instruction on an account that does not exist yet (a new wallet's tDVPN account).
+  // Seen 2026-11-11: device setup on a fresh wallet showed "[object Object]".
+  if (/InvalidAccountData|IncorrectProgramId|InvalidAccountOwner|UninitializedAccount/.test(s)) return tr('A tDVPN token account this transaction needs does not exist yet.');
   return null;
+}
+
+/** Never "[object Object]": a readable line for any thrown value. */
+export function errorText(err: unknown): string {
+  if (typeof err === 'string') return err;
+  if (err instanceof ShownError) return err.shown();
+  const known = describeInstructionError((err as { err?: unknown } | null)?.err ?? err);
+  if (known) return known;
+  const msg = (err as { message?: unknown } | null)?.message;
+  if (typeof msg === 'string' && msg && msg !== '[object Object]') return msg;
+  return tr('The network rejected the transaction: {safeJson}', { safeJson: safeJson(err) });
 }
 
 /** One Error carrying the decoded program error (simulation or send). */
@@ -119,12 +135,12 @@ export class ProgramError extends Error {
     // "Program error 0 (0):". H1: an EXPIRED subscription stays until it is closed, so waiting does not help.
     const alreadyInUse = code === 0 && /already in use/i.test(logText);
     let message: string;
-    if (alreadyInUse) message = 'This wallet already has a subscription to this plan, and a wallet can hold only one per plan. An ended subscription stays until you remove it (Plans, then Remove); after that you can subscribe again.';
+    if (alreadyInUse) message = tr('This wallet already has a subscription to this plan, and a wallet can hold only one per plan. An ended subscription stays until you remove it (Plans, then Remove); after that you can subscribe again.');
     else if (desc && code !== null && code >= 6000) message = `${desc.name} (${code}): ${desc.message}`;
-    else if (solInsufficient) message = 'Not enough SOL';
-    else if (tokenInsufficient) message = 'Not enough tDVPN';
+    else if (solInsufficient) message = tr('Not enough SOL');
+    else if (tokenInsufficient) message = tr('Not enough tDVPN');
     else if (desc && code !== null) message = `${desc.name} (${code}): ${desc.message}`;
-    else message = describeInstructionError(src?.err ?? source) ?? src?.message ?? String(source);
+    else message = errorText(source);
     super(message);
     this.name = 'ProgramError';
     this.code = code;

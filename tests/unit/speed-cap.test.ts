@@ -1,7 +1,7 @@
 // ─── Speed test caps the whole download (a slow but steady link must not run for minutes) ───
 // Test Lab: Hysteria2 at ~0.7 Mbps took > 120 s for 10 MB, because the 20 s timeout is an idle
 // timeout; the phone test's exec hook gave up first ("hook: Try again").
-// Ported from Android accff5a (a test VM).
+// Ported from Android accff5a (connect-43).
 import { EventEmitter } from 'node:events';
 import { describe, it, expect, vi } from 'vitest';
 

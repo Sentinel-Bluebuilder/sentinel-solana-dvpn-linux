@@ -14,7 +14,11 @@ import { sol } from '../../shared/format';
 import { readWalletStatus, type WalletStatus } from './wallet-status';
 import { signAndSend, type OwnerSigner } from './signer';
 import { DEVICE_SOL_MIN } from '../pricing/cost';
-import { PERMS_CLIENT } from '../chain/idl';
+import { MINT, PERMS_CLIENT } from '../chain/idl';
+import { ata } from '../chain/program';
+import { TOKEN_2022_PROGRAM_ID, createAssociatedTokenAccountIdempotentInstruction } from '@solana/spl-token';
+import { ownerSolForSetup } from '../session/setup-gate';
+import { ShownError, tr } from '../../shared/i18n';
 
 export const DEVICE_SOL_TARGET = 50_000_000; // 0.05 SOL: fees + ~0.0022 SOL rent per open channel (returned on close), ~20 channels (F3)
 
@@ -33,6 +37,36 @@ export function deviceTopUpLamports(deviceLamports: number, ownerLamports: numbe
   return ownerLamports - OWNER_SOL_RESERVE >= need ? need : null;
 }
 
+// ─── Device permission at first connect (setting autoDevicePermission) ───
+// Owner 2026-11-11: no "Sign device permission" setup step. The first Connect signs it with the
+// in-app wallet (the Connect dialog says so; no second popup), starts the service, then pays the
+// deposit. Settings turns it off; Wallet → This device still sets it up or removes it by hand.
+
+/** Where the first-connect setup stands, for the banner and Settings. */
+export type DeviceAutoState = 'off' | 'pending' | 'running' | 'failed' | 'idle';
+
+
+export type AutoSetupDecision = 'run' | 'off' | 'no-key' | 'no-device' | 'not-needed' | 'owner-short';
+
+/** True when the device cannot pay nodes for want of the permission itself (not just device SOL). */
+export function needsPermission(w: Pick<WalletStatus, 'grant' | 'delegated'>): boolean {
+  return !w.grant || (w.grant.permissions & PERMS_CLIENT) !== PERMS_CLIENT || BigInt(w.delegated || '0') === 0n;
+}
+
+export { ownerSolForSetup };
+
+export function autoSetupDecision(
+  w: Pick<WalletStatus, 'grant' | 'delegated' | 'device' | 'deviceLamports' | 'ownerLamports'>,
+  o: { on: boolean; hasKey: boolean },
+): AutoSetupDecision {
+  if (!w.device) return 'no-device';
+  if (!needsPermission(w)) return 'not-needed';
+  if (!o.on) return 'off';
+  if (!o.hasKey) return 'no-key';
+  if (w.ownerLamports < ownerSolForSetup(w.deviceLamports)) return 'owner-short';
+  return 'run';
+}
+
 export async function sendDeviceSol(signer: OwnerSigner, device: string, lamports: number): Promise<string> {
   const ix = SystemProgram.transfer({ fromPubkey: signer.publicKey, toPubkey: new PublicKey(device), lamports });
   return (await signAndSend(signer, [ix], 'device_topup')).signature;
@@ -40,8 +74,7 @@ export async function sendDeviceSol(signer: OwnerSigner, device: string, lamport
 
 /** The wallet in use is this computer's device key itself (e.g. imported from the service's operator.json). */
 export function sameKeyMessage(device: string): string {
-  return `This wallet is this computer's own device key (${device}), so it cannot give itself a spending allowance. `
-    + 'Use your own wallet (the one holding your tDVPN), not the VPN service\'s key file. Nothing was signed.';
+  return tr('This wallet is this computer\'s own device key ({device}), so it cannot give itself a spending limit. Use your own wallet (the one holding your tDVPN), not the VPN service\'s key file. Nothing was signed.', { device });
 }
 
 export interface SetupPlan {
@@ -50,6 +83,10 @@ export interface SetupPlan {
   approveTo: string | null;
   allowance: string;
   topUpLamports: number;
+  /** SOL the owner wallet needs for this setup (device top-up + rent + fees, = ownerSolForSetup). */
+  ownerNeedLamports: number;
+  /** How much of that the owner wallet is missing; 0 = enough (or nothing to sign). */
+  ownerShortLamports: number;
 }
 
 /** What it takes to let `device` spend up to `allowance` (base units). */
@@ -61,36 +98,54 @@ export async function planDeviceSetup(owner: string, device: string, allowance: 
   const ixs: TransactionInstruction[] = [];
   const steps: string[] = [];
   const want = BigInt(allowance);
-  const currentAllowance = BigInt(st.grant?.allowance ?? '0');
-  // Delegate: make sure the shared amount covers this device's new room on top of what others had.
+  // LIM-2 (the agent kit rc.9, T-A 15 least privilege): the shared approval is SET to the limit, never added. It was "what is
+  // still approved + the new room", so each raise stacked on what deposits had not used yet (delegated 150.005 →
+  // 150.010 → 299.997 on one device). It is approved only when below the limit, and never lowered here (another
+  // device of this wallet may rely on it; `device revoke` is the way down).
   let approveTo: string | null = null;
-  const extra = want > currentAllowance ? want - currentAllowance : 0n;
-  if (extra > 0n || BigInt(st.delegated) === 0n) {
-    approveTo = (BigInt(st.delegated) + (extra > 0n ? extra : want)).toString();
+  if (BigInt(st.delegated) < want) {
+    approveTo = want.toString();
+    // A new wallet has no tDVPN token account, and approving on a missing account fails
+    // (2026-11-11: "[object Object]" on a fresh wallet). Create it first, in the same transaction.
+    if (st.ownerAta === false) {
+      const ownerPk = new PublicKey(owner);
+      ixs.push(createAssociatedTokenAccountIdempotentInstruction(ownerPk, ata(ownerPk), ownerPk, MINT, TOKEN_2022_PROGRAM_ID));
+    }
     ixs.push(b.approveDelegate({ owner, amount: approveTo }));
-    steps.push(`Approve the dVPN program to spend up to ${tdvpn(approveTo)} tDVPN from your wallet (shared by your devices)`);
+    steps.push(tr('Approve the dVPN program to spend up to {approveTo} tDVPN from your wallet (shared by your devices)', { approveTo: tdvpn(approveTo) }));
   }
   if (!st.grant) {
     ixs.push(await b.openGrant({ owner, grantee: device, allowance }));
-    steps.push(`Allow this device to pay nodes for you, up to ${tdvpn(allowance)} tDVPN`);
+    steps.push(tr('Allow this device to pay servers for you, up to {allowance} tDVPN', { allowance: tdvpn(allowance) }));
   } else if (st.grant.allowance !== allowance || (st.grant.permissions & PERMS_CLIENT) !== PERMS_CLIENT) {
     const fixPerms = (st.grant.permissions & PERMS_CLIENT) !== PERMS_CLIENT;
     ixs.push(await b.updateGrant({ owner, grantee: device, allowance, permissions: fixPerms ? Number(BigInt(st.grant.permissions) | BigInt(PERMS_CLIENT)) : undefined }));
     steps.push(st.grant.allowance !== allowance
-      ? `Change this device's spending limit from ${tdvpn(st.grant.allowance)} to ${tdvpn(allowance)} tDVPN`
-      : 'Let this device open, top up and close deposits for you');
+      ? tr('Change this device\'s spending limit from {allowance} to {allowance2} tDVPN', { allowance: tdvpn(st.grant.allowance), allowance2: tdvpn(allowance) })
+      : tr('Let this device open, top up and close deposits for you'));
   }
   const topUpLamports = st.deviceLamports < DEVICE_SOL_TARGET ? DEVICE_SOL_TARGET - st.deviceLamports : 0;
   if (topUpLamports > 0) {
     ixs.push(SystemProgram.transfer({ fromPubkey: new PublicKey(owner), toPubkey: new PublicKey(device), lamports: topUpLamports }));
-    steps.push(`Send this device ${sol(topUpLamports)} SOL for network fees`);
+    steps.push(tr('Send this device {topUpLamports} SOL for network fees', { topUpLamports: sol(topUpLamports) }));
   }
-  return { ixs, steps, approveTo, allowance, topUpLamports };
+  // Q0484 H2 (Mac, fresh wallet with 0.05 SOL): the plan offered "Send this device 0.05 SOL" and the
+  // signed transaction failed as a bare "Not enough SOL". Same bar as the first-connect setup.
+  const ownerNeedLamports = ownerSolForSetup(st.deviceLamports);
+  const ownerShortLamports = ixs.length ? Math.max(0, ownerNeedLamports - st.ownerLamports) : 0;
+  return { ixs, steps, approveTo, allowance, topUpLamports, ownerNeedLamports, ownerShortLamports };
+}
+
+/** The words for a setup the owner wallet cannot pay for (shared by the app and the CLI). */
+export function ownerSolShortMessage(needLamports: number): string {
+  return tr('Add devnet SOL to your wallet first: setting up this computer to pay servers needs about {needLamports} SOL for fees.', { needLamports: (needLamports / 1e9).toFixed(3) });
 }
 
 export async function runDeviceSetup(signer: OwnerSigner, device: string, allowance: string): Promise<{ signature: string | null; plan: SetupPlan }> {
   const plan = await planDeviceSetup(signer.publicKey.toBase58(), device, allowance);
   if (!plan.ixs.length) return { signature: null, plan };
+  // Nothing is signed when the wallet cannot pay for it (the chain would refuse with "Not enough SOL").
+  if (plan.ownerShortLamports > 0) throw new Error(ownerSolShortMessage(plan.ownerNeedLamports));
   const res = await signAndSend(signer, plan.ixs, 'device_setup');
   return { signature: res.signature, plan };
 }
@@ -99,12 +154,12 @@ export async function runDeviceSetup(signer: OwnerSigner, device: string, allowa
  * Revoke a device. Refused only while it is using a deposit in a live session. Settling never
  * needs the grant: start_close / close / withdraw are signed by the owner and take the grant as
  * an optional account (devnet IDL cf4c372), and nodes redeem without it. So closing or idle
- * deposits still settle and refund after the device is removed (#32 2026-10-22).
+ * deposits still settle and refund after the device is removed (the Linux app 2026-10-22).
  */
 export async function revokeDevice(signer: OwnerSigner, device: string, liveSessions: number): Promise<string> {
-  if (liveSessions > 0) throw new Error('Disconnect first: this computer is using a deposit right now. Deposits still settle and refund to your wallet after you remove the device.');
+  if (liveSessions > 0) throw new ShownError('Disconnect first: this computer is using a deposit right now. Deposits are still refunded to your wallet after you remove the device.');
   const st = await readWalletStatus(signer.publicKey.toBase58(), device);
-  if (!st.grant) throw new Error('This device has no spending permission to remove.');
+  if (!st.grant) throw new ShownError('This device has no spending limit to remove.');
   const res = await signAndSend(signer, [await b.closeGrant({ owner: signer.publicKey, grantee: device, rentPayer: st.grant.rentPayer })], 'close_grant');
   return res.signature;
 }

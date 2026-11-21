@@ -6,6 +6,8 @@ import { isValidRpcUrl, setRpcUrls } from '../../core/chain/rpc';
 import { GB_OPTIONS, HOUR_OPTIONS } from '../../core/pricing/cost';
 import { readJson, writeJson } from '../store';
 import { sanitizePoll } from '../../shared/poll';
+import { storedSpeedOrigin } from '../../core/quality/speed-origin';
+import { findLanguage, LONG_TEXT_CODE } from '../../shared/i18n';
 
 const FILE = 'settings.json';
 let current: AppSettings = { ...DEFAULT_SETTINGS };
@@ -24,16 +26,24 @@ export function sanitize(input: Partial<Record<keyof AppSettings, unknown>>, bas
   if (input.preferredCountry === null || (typeof input.preferredCountry === 'string' && /^[A-Z]{2}$/.test(input.preferredCountry))) out.preferredCountry = input.preferredCountry as string | null;
   out.autoConnect = bool(input.autoConnect, out.autoConnect);
   out.autoTopUpDevice = bool(input.autoTopUpDevice, out.autoTopUpDevice);
+  out.autoDevicePermission = bool(input.autoDevicePermission, out.autoDevicePermission);
   out.startWithOs = bool(input.startWithOs, out.startWithOs);
   out.closeToTray = bool(input.closeToTray, out.closeToTray);
   out.thirdPartyChecks = bool(input.thirdPartyChecks, out.thirdPartyChecks);
   out.notifications = bool(input.notifications, out.notifications);
   out.proxyOnConnect = bool(input.proxyOnConnect, out.proxyOnConnect);
-  if (input.language === 'en') out.language = 'en'; // v1 ships English only (strings.ts)
+  // '' = follow the system; a known code (even a switched-off one: it still loads) or the long-text test language
+  if (input.language === '' || input.language === LONG_TEXT_CODE) out.language = input.language;
+  else if (typeof input.language === 'string' && findLanguage(input.language)) out.language = findLanguage(input.language)!.code;
   if (input.theme === 'system' || input.theme === 'dark' || input.theme === 'light') out.theme = input.theme;
   if (Array.isArray(input.favourites)) out.favourites = [...new Set(input.favourites.map(String).filter((a) => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(a)))].slice(0, 500);
   if (typeof input.allowanceTdvpn === 'string' && /^\d{1,9}(\.\d{1,6})?$/.test(input.allowanceTdvpn) && Number(input.allowanceTdvpn) > 0) out.allowanceTdvpn = input.allowanceTdvpn;
   if (input.poll !== undefined) out.poll = sanitizePoll(input.poll, out.poll);
+  // The speed origin is a pair: both well-formed or both empty; anything else keeps what was stored.
+  if (input.speedOrigin !== undefined || input.speedPin !== undefined) {
+    const pair = storedSpeedOrigin(input.speedOrigin ?? out.speedOrigin, input.speedPin ?? out.speedPin);
+    if (pair) { out.speedOrigin = pair.origin; out.speedPin = pair.pin; }
+  }
   return out;
 }
 

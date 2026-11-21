@@ -9,12 +9,13 @@ export function escrowFlag(v: string): string {
   return toBaseUnits(v);
 }
 
-/** A whole number of MB / minutes -> bytes / seconds. 0 = back to the node's minimum (#34: refusing it left no way back). */
+/** A whole number of MB / minutes -> bytes / seconds. 0 = back to the node's minimum (the Android app: refusing it left no way back). */
 export function wholeFlag(name: string, v: string, unit: bigint): string {
   if (!/^\d{1,9}$/.test(v)) throw new FlagError(`--${name} must be a whole number (0 = the node's minimum)`);
   return (BigInt(v) * unit).toString();
 }
 
+/** A true|false flag: anything else is a usage error (never silently false). */
 export function boolFlag(name: string, raw: string): boolean {
   const v = raw.trim().toLowerCase();
   if (v === 'true') return true;

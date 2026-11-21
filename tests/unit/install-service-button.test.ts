@@ -16,8 +16,8 @@ describe('Install service after setup (Q0305)', () => {
   });
 
   it('the lost-service banner offers it', () => {
-    expect(lostSetupCopy('service')?.text).toMatch(/not answering/);
-    expect(read('src/renderer/src/App.tsx')).toMatch(/action=\{step === 'service' \? <InstallServiceButton \/>/);
+    expect(lostSetupCopy('service')?.text).toMatch(/VPN service is off/); // Q0576 wording
+    expect(read('src/renderer/src/App.tsx')).toContain("action={step === 'service' ? <InstallServiceButton label=");
   });
 
   it('Diagnostics offers it while the service does not answer', () => {

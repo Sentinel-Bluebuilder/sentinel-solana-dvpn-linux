@@ -4,14 +4,15 @@ export const DNS_PRESETS: Record<string, { label: string; servers: string[] }> =
   // Lookups go out from the server's network, and some networks block HNSDNS (gap #63: fails from
   // GCP, works from home ISPs; Cosmos lesson T15: 44 nodes at 0 speed). Kept first, said plainly.
   // Q0267: HNSDNS lost 25-90 % of queries from node networks (10-29); 1.1.1.1 third is the one
-  // non-HNS fallback. A Handshake-only name it answers NXDOMAIN (owner decision pending).
+  // non-HNS fallback. Resolvers try the list in order, but a slow HNSDNS answer lets it in early
+  // (Windows asks the other servers after ~1 s): a Handshake-only name can then get its NXDOMAIN.
   handshake: { label: 'Handshake (HNSDNS) - some servers block it', servers: ['103.196.38.38', '103.196.38.39', '1.1.1.1'] },
   cloudflare: { label: 'Cloudflare', servers: ['1.1.1.1', '1.0.0.1'] },
   google: { label: 'Google', servers: ['8.8.8.8', '8.8.4.4'] },
   quad9: { label: 'Quad9', servers: ['9.9.9.9', '149.112.112.112'] },
 };
 
-// ─── Settings DNS select (W-X64-UI-DNS-CUSTOM, Q0058) ───
+// ─── Settings DNS select (W-X64-UI-DNS-CUSTOM) ───
 export const DNS_CUSTOM = 'custom';
 
 /** Preset key whose servers equal `servers` (same order), else null. */

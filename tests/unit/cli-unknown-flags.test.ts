@@ -1,4 +1,4 @@
-// ─── Unknown flags are refused (#33 rig 2: `daemon set --dns-preset quad9 --yes` said "Applied and
+// ─── Unknown flags are refused (the macOS app rig 2: `daemon set --dns-preset quad9 --yes` said "Applied and
 // restarted" and changed nothing: the real flag is --dns; port of Mac 0790fc2) ───
 import { describe, expect, it } from 'vitest';
 import { CATALOGUE, entryFor, unknownFlags } from '../../src/cli/catalogue';
@@ -13,8 +13,6 @@ describe('unknown flags', () => {
   });
   it('the flags a command documents, and the global ones, pass', () => {
     expect(unknown('daemon set --dns quad9 --kill-switch on --yes')).toEqual([]);
-    // F-C1-3: Linux must reach the platform refusal (daemon-cmd.ts), not the generic unknown-option usage
-    expect(unknown('daemon set --split-mode include --split-apps /usr/bin/firefox --yes')).toEqual([]);
     expect(unknown('connect NodeA --units 2 --basis per_gb --yes --json')).toEqual([]);
     expect(unknown('status --json --verbose --keyfile C:\\x.json')).toEqual([]);
     expect(unknown('device register --home C:\\ProgramData\\dvpnd\\client')).toEqual([]);

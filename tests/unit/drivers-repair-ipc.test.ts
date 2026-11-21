@@ -21,7 +21,7 @@ const ok = <T>(data: T): Result<T> => ({ ok: true, data });
 
 describe('DRIVERS_REPAIR reaches Diagnostics as data', () => {
   it('the handler wraps the report with ok()', () => {
-    expect(readFileSync('src/main/ipc.ts', 'utf8')).toMatch(/\[IPC\.DRIVERS_REPAIR\]: async \(\) => ok\(await repairDrivers\(\)\)/);
+    expect(readFileSync('src/main/ipc.ts', 'utf8')).toMatch(/\[IPC\.DRIVERS_REPAIR\]: async \(\) => ok\(await repairDrivers\(/); // a progress callback may follow (the macOS app)
   });
 
   it('wrapped: a good repair gives the view, a failed one gives its error (not a throw)', () => {

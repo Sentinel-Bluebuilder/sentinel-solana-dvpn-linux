@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 // ─── Repin the bundled sentinel-dvpnd from a fork build's stage folder ───
-// Usage: node scripts/repin-dvpnd.mjs <stage dir> [--bins <dir>] [--dry-run]
+// Usage: node scripts/repin-dvpnd.mjs <stage dir> [--bins <dir>] [--notices <file>] [--dry-run]
+//   <stage dir> may also be a published fork folder (ctl-1 ~/final-cb33-<NN>: bin/linux-<arch>/sentinel-dvpnd, SHA256SUMS,
+//   MANIFEST from the Windows app scripts/e2e/dvw/fork-final-build.sh). MANIFEST: only the key: value header is read (up to the first
+//   blank line; the prose below may contain colons). Notices: the stage file, else --notices <file>, else the folder's
+//   notices/dvpnd-THIRD-PARTY-NOTICES-linux.txt (published from 6.10 on).
 //   <stage dir> = fork-final-build.sh's stage/32-linux: MANIFEST, SHA256SUMS, linux-{amd64,arm64}/sentinel-dvpnd,
 //   and dvpnd-THIRD-PARTY-NOTICES.txt (one block per Go module: version, licence, full text).
 // It checks the stage (SHA256SUMS, devnet identity in MANIFEST and in each binary, the notices file against
 // the binary's own module list), copies both binaries to the folder fetch-deps reads (--bins, default
-// ~/work/devnet-dvpn-dvpnd-devnet/build), writes the new tag + SHA-256s into build/deps.lock.json and
+// ~/dvpnd/build), writes the new tag + SHA-256s into build/deps.lock.json and
 // copies the notices file to build/licenses/. --dry-run writes nothing and reports.
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -27,8 +31,10 @@ const ARCHES = { x64: 'linux-amd64', arm64: 'linux-arm64' };
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const binsAt = args.indexOf('--bins');
-const BINS = binsAt >= 0 ? args[binsAt + 1] : path.join(os.homedir(), 'Desktop', 'devnet-dvpn-dvpnd-devnet', 'build');
-const STAGE = args.find((a, i) => !a.startsWith('--') && (binsAt < 0 || i !== binsAt + 1));
+const BINS = binsAt >= 0 ? args[binsAt + 1] : path.join(os.homedir(), 'dvpnd', 'build');
+const noticesAt = args.indexOf('--notices');
+const NOTICES_ARG = noticesAt >= 0 ? args[noticesAt + 1] : null;
+const STAGE = args.find((a, i) => !a.startsWith('--') && (binsAt < 0 || i !== binsAt + 1) && (noticesAt < 0 || i !== noticesAt + 1));
 if (!STAGE) {
   console.error('usage: node scripts/repin-dvpnd.mjs <stage dir> [--bins <dir>] [--dry-run]');
   process.exit(3);
@@ -41,10 +47,17 @@ const fail = (msg) => {
 };
 
 // ─── Stage: manifest, checksums, identity ───
-const manifest = Object.fromEntries(
-  fs.readFileSync(path.join(STAGE, 'MANIFEST'), 'utf8').split('\n')
-    .map((l) => l.match(/^([a-z_]+):\s*(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]),
-);
+// Header only: key: value lines up to the first blank line (fork-final-build.sh puts prose below it, and a prose line
+// such as 'network: ...' must never override the header). A file with no blank line is all header (older stages).
+const manifestLines = fs.readFileSync(path.join(STAGE, 'MANIFEST'), 'utf8').replace(/\r/g, '').split('\n');
+const blankAt = manifestLines.findIndex((l, i) => i > 0 && l.trim() === '');
+const manifestPairs = (blankAt > 0 ? manifestLines.slice(0, blankAt) : manifestLines)
+  .map((l) => l.match(/^([a-z_]+):\s*(.*)$/)).filter(Boolean).map((m) => [m[1], m[2].trim()]);
+// a key twice = a header that ran into prose (no blank line) or a broken writer: never let the last one win silently
+const dupKey = manifestPairs.map(([k]) => k).find((k, i, all) => all.indexOf(k) !== i);
+if (dupKey) fail(`MANIFEST header has "${dupKey}" twice (end the key: value header with a blank line before any prose)`);
+const manifest = Object.fromEntries(manifestPairs);
+manifest.toolchain ??= manifest.go; // fork-final-build.sh writes go:
 for (const [k, v] of Object.entries(DEVNET)) {
   if (manifest[k] !== v) fail(`MANIFEST ${k} is "${manifest[k] ?? 'missing'}", want ${v}`);
 }
@@ -54,7 +67,8 @@ const sums = new Map(fs.readFileSync(path.join(STAGE, 'SHA256SUMS'), 'utf8').spl
   .map((l) => l.match(/^([0-9a-f]{64})\s+\.?\/?(.+)$/)).filter(Boolean).map((m) => [m[2], m[1]]));
 const bins = {};
 for (const [arch, dir] of Object.entries(ARCHES)) {
-  const rel = `${dir}/sentinel-dvpnd`;
+  // stage layout (linux-amd64/...) or the published fork folder (bin/linux-amd64/...)
+  const rel = fs.existsSync(path.join(STAGE, dir, 'sentinel-dvpnd')) ? `${dir}/sentinel-dvpnd` : `bin/${dir}/sentinel-dvpnd`;
   const buf = fs.readFileSync(path.join(STAGE, rel));
   const got = sha256(buf);
   if (sums.get(rel) !== got) fail(`${rel}: SHA-256 ${got} does not match SHA256SUMS (${sums.get(rel) ?? 'not listed'})`);
@@ -67,8 +81,14 @@ if (keyOf(bins.x64.mods) !== keyOf(bins.arm64.mods)) fail('the amd64 and arm64 b
 
 // ─── Notices: the stage's per-module file (the licence gate's format), checked against the binary ───
 const STAGE_NOTICES = 'dvpnd-THIRD-PARTY-NOTICES.txt';
-const noticesBuf = fs.readFileSync(path.join(STAGE, STAGE_NOTICES));
-if (sums.get(STAGE_NOTICES) !== sha256(noticesBuf)) fail(`${STAGE_NOTICES}: SHA-256 does not match SHA256SUMS`);
+// stage file (in SHA256SUMS) > --notices > the published folder's notices/ (fork-final-build.sh from 6.10). The last two are
+// outside SHA256SUMS: they are checked against the binary's module list below instead.
+const PUBLISHED_NOTICES = path.join(STAGE, 'notices', 'dvpnd-THIRD-PARTY-NOTICES-linux.txt');
+const inStage = fs.existsSync(path.join(STAGE, STAGE_NOTICES));
+const noticesFrom = NOTICES_ARG ?? (inStage ? path.join(STAGE, STAGE_NOTICES) : PUBLISHED_NOTICES);
+if (!fs.existsSync(noticesFrom)) fail(`no notices: ${STAGE_NOTICES} or notices/dvpnd-THIRD-PARTY-NOTICES-linux.txt in the stage, or pass --notices <file>`);
+const noticesBuf = fs.readFileSync(noticesFrom);
+if (!NOTICES_ARG && inStage && sums.get(STAGE_NOTICES) !== sha256(noticesBuf)) fail(`${STAGE_NOTICES}: SHA-256 does not match SHA256SUMS`);
 const notices = noticesBuf.toString('utf8');
 const diff = moduleDiff(bins.x64.mods, noticeModules(notices));
 if (diff.length) fail(`${STAGE_NOTICES} does not match the binary's modules: ${diff.slice(0, 5).join('; ')}`);

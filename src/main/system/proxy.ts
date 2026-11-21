@@ -201,6 +201,16 @@ export async function setSystemProxy(endpoint: string): Promise<void> {
   log.info('system proxy set', { endpoint, backend });
 }
 
+/**
+ * Q0351 (platform export, shared scheduler): whether our proxy is really still set. The user can turn it off in GNOME
+ * or KDE settings; Home then said apps use the VPN while they went direct. Reads the live desktop setting.
+ */
+export async function systemProxyLive(): Promise<boolean> {
+  const saved = readJson<Saved | null>(BACKUP, null);
+  if (!saved?.state?.backend) return false;
+  return isOurs(await runner.query(saved.state.backend), saved.ours);
+}
+
 export function systemProxyActive(): boolean {
   return fs.existsSync(storePath(BACKUP));
 }

@@ -1,4 +1,4 @@
-// ─── Is DNS really left over after a session? (F15, UPSTREAM-GAPS #25) — Linux ───
+// ─── Is DNS really left over after a session? (F15, UPSTREAM-GAPS another project) — Linux ───
 // dvpnd's resolvectl backend sets the VPN's DNS servers on the TUNNEL link (with the `~.`
 // routing domain); when the link is removed systemd-resolved drops them with it. The
 // resolvconf backend writes them into /etc/resolv.conf and puts the old file back on stop.
@@ -67,13 +67,37 @@ export async function dnsReallyLeftOver(vpnServers: string[] | undefined): Promi
   }
 }
 
+/** What a failed flush is logged with (the Windows app 1ec4cfc, row 134: "Command failed" alone explained nothing).
+ *  Both streams are kept, cut short. Shared shape with the Windows app (tests/unit/dns-flush-log.test.ts). */
+export function flushFailure(err: Error, stdout: unknown, stderr: unknown): Record<string, unknown> {
+  const e = err as Error & { code?: number | string | null; signal?: string | null; killed?: boolean };
+  const cut = (s: unknown): string => String(s ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  return { err: e.message.split('\n')[0], code: e.code ?? null, signal: e.signal ?? null, timedOut: e.killed === true, stdout: cut(stdout), stderr: cut(stderr) };
+}
+
+/** The flush needs an administrator: Windows' texts (the Windows app) and Linux's: polkit refuses resolvectl for this user
+ *  ("Failed to flush caches: Access denied" / "Interactive authentication required"). Said once at info, then skipped. */
+export const flushNeedsAdmin = (f: Record<string, unknown>): boolean =>
+  /requires elevation|access is denied|access denied|interactive authentication required/i.test(`${String(f.stdout)} ${String(f.stderr)} ${String(f.err)}`);
+let flushNotAllowed = false;
+/** Tests: forget that this computer refused the flush. */
+export const resetFlushState = (): void => { flushNotAllowed = false; };
+
 /**
  * Drop systemd-resolved's cache after a tunnel comes up or goes down: answers (and failures)
  * cached on the old path are wrong for the new one. Same as `resolvectl flush-caches`.
  * Fire and forget, logged. No resolved (resolvconf systems) = nothing cached system-wide.
  */
 export function flushDnsCache(): void {
-  execFile('resolvectl', ['flush-caches'], { timeout: 10_000 }, (err) => {
-    if (err) log.warn('flushing the DNS cache failed', { err: err.message });
+  if (flushNotAllowed) return;
+  execFile('resolvectl', ['flush-caches'], { timeout: 10_000 }, (err, stdout, stderr) => {
+    if (!err) return;
+    const f = flushFailure(err, stdout, stderr);
+    if (flushNeedsAdmin(f)) {
+      flushNotAllowed = true;
+      log.info('this computer lets only an administrator clear the DNS cache; skipped from now on (the first lookups after a connect may be slow)', f);
+      return;
+    }
+    log.warn('flushing the DNS cache failed', f);
   });
 }

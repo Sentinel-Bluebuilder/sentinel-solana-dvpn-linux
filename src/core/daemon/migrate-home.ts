@@ -2,7 +2,7 @@
 // The old build kept its device key and settings in legacyHome() (Windows: C:\ProgramData\dvpnd\client,
 // config.toml + client\config.toml, key client\keys\device.json) and ran the service "dvpnd". The cb33 daemon reads
 // instanceDir() (Windows: %ProgramData%\sentinel-dvpn\c0, ONE config.toml, key keys\operator.json) as the
-// service sentinel-dvpnd$c0. Same pattern as #32 (FLX):
+// service sentinel-dvpnd$c0. Same pattern as the Linux app (FLX):
 //   1. the old service goes first (Windows: the OLD binary's `service uninstall`; see legacyServiceName): that
 //      releases a kill switch the old daemon still holds (gap #84) and frees the tunnel adapters;
 //   2. the device key is copied to keys\operator.json, so `init` reuses it (only --new-key replaces a key): the device
@@ -14,6 +14,7 @@
 
 import { carrySettingsInto } from './config';
 import { CONFIG_FILE, KEYS_DIR, LEGACY_DEVICE_KEY, OPERATOR_KEY, initArgs, instanceDir, legacyHome, type Goos } from './layout';
+import { tr } from '../../shared/i18n';
 
 export interface HomeView {
   /** true when the path exists (a file or a folder) */
@@ -38,8 +39,8 @@ const sep = (goos: Goos): string => (goos === 'win32' ? '\\' : '/');
 const join = (goos: Goos, ...parts: string[]): string => parts.join(sep(goos));
 
 /**
- * The service the pre-cb33 builds installed: #31 setup-daemon.ps1 ('dvpnd'), #32 setup-daemon.sh's systemd unit
- * ('dvpnd-client'), #33 _lib.sh's launchd label. How to remove it is each app's (Windows: the old binary's
+ * The service the pre-cb33 builds installed: the Windows app setup-daemon.ps1 ('dvpnd'), the Linux app setup-daemon.sh's systemd unit
+ * ('dvpnd-client'), the macOS app _lib.sh's launchd label. How to remove it is each app's (Windows: the old binary's
  * `service uninstall`; Linux: systemctl stop + disable + remove the unit, the old binary has no `service` command).
  */
 export function legacyServiceName(goos: Goos): string {
@@ -65,7 +66,7 @@ export function planHomeMigration(goos: Goos, owner: string, view: HomeView, opt
   // (made for the old device) would not cover it. Stop and say so; never overwrite a key.
   const there = view.read(newKey);
   if (there !== null && there.trim() !== keyText.trim()) {
-    return { migrate: false, reason: 'key-conflict', detail: `${newKey} holds a different key than ${oldKey}` };
+    return { migrate: false, reason: 'key-conflict', detail: tr('{newKey} holds a different key than {oldKey}', { newKey, oldKey }) };
   }
   const steps: MigrationStep[] = [
     { kind: 'uninstall-old-service', service: legacyServiceName(goos) },

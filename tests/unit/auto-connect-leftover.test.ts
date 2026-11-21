@@ -44,4 +44,13 @@ describe('connect on launch', () => {
     expect(checkLeftoverBlock).toHaveBeenCalledOnce();
     expect(connect).toHaveBeenCalledOnce();
   });
+
+  // CODE-AUDIT L-37: nobody sees a price at launch, so the deposit is held to the listed one.
+  it('sends the deposit of the listed price, so a price raised since is refused', async () => {
+    checkLeftoverBlock.mockResolvedValue(false);
+    await run();
+    const req = (connect.mock.calls[0] as unknown as [{ shownEscrow?: string; units: number; basis: string }])[0];
+    expect(req.basis).toBe('per_hour');
+    expect(req.shownEscrow).toBe('1'); // 1 base unit per hour x 1 hour, from the list the mock returns
+  });
 });

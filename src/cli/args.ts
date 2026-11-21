@@ -4,7 +4,8 @@ export interface Args {
   flags: Record<string, string | true>;
 }
 
-const BOOLEAN = new Set(['json', 'yes', 'online', 'no-probe', 'follow', 'help', 'all', 'fresh', 'compare']);
+// On/off flags never take the next word as their value (`test plan --never-tested <server>` keeps the server).
+const BOOLEAN = new Set(['json', 'yes', 'allow-remote-lockout', 'online', 'no-probe', 'follow', 'help', 'all', 'fresh', 'compare', 'failed-last', 'never-tested', 'resume', 'switch', 'force', 'allow-empty', 'hidden', 'raise-limit']); // AUD-2 M4
 
 export function parseArgs(argv: string[]): Args {
   const out: Args = { _: [], flags: {} };
@@ -29,15 +30,19 @@ export function str(a: Args, name: string, fallback?: string): string | undefine
   return typeof v === 'string' ? v : fallback;
 }
 
-export function num(a: Args, name: string, fallback: number): number {
-  const v = str(a, name);
-  if (v === undefined) return fallback;
-  const n = Number(v);
-  if (!Number.isFinite(n)) throw new UsageError(`--${name} must be a number`);
-  return n;
+/**
+ * E-21 (money): a value flag given with nothing after it (`--plan=`, or `--plan` last / before another flag) read as
+ * "not given": `connect <node> --plan` became a PAID connect. Each named flag, when present, must carry a value.
+ */
+export function requireValues(a: Args, names: readonly string[]): void {
+  for (const n of names) {
+    if (!(n in a.flags)) continue;
+    const v = a.flags[n];
+    if (typeof v !== 'string' || !v.trim()) throw new UsageError(`--${n} needs a value (nothing was run)`);
+  }
 }
 
-/** A whole number in [min, max]; anything else (0, -5, 1.5, 1e3, '１') is a usage error, never a fallback. */
+/** A whole number in [min, max]; anything else (0, -5, 1.5, 1e3, '１') is a usage error, never a fallback (linux-app 46754684). */
 export function whole(a: Args, name: string, fallback: number, min: number, max: number): number {
   const v = str(a, name);
   if (v === undefined) return fallback;

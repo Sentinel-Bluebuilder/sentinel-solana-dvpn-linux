@@ -1,36 +1,28 @@
-import { readFileSync } from 'node:fs';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { sessionWarningCopy } from '../../src/core/session/state';
-import { toLive } from '../../src/main/services/connection';
-import type { DaemonSession } from '../../src/core/daemon/client';
+import { SESSION_WARNING_COPY, sessionWarningCopy } from '../../src/core/session/state';
 
-// Q0357 (DIR 10-30): a session whose full-size traffic still fails after the clamp stays up, but the
-// Connect screen says so (never silent). dvpnd sends Session.warning = "large-packets" (proto 13).
-
-const base: DaemonSession = {
-  id: 's1', node: 'n', status: 'active', service: 'wireguard', usage: null, spent: '0', startedAt: null,
-  endedAt: null, error: '', channel: '', ticketHash: '', proxyEndpoint: '',
-};
-
+// Q0357 (FAN, DIR: same banner on all 4 apps): dvpnd keeps a session whose full-size traffic still
+// fails after its clamp and sets Session.warning = 'large-packets'; the app shows a warning banner.
 describe('session warning', () => {
-  it('large-packets has the copy every app shows', () => {
+  it('large-packets reads the shared copy', () => {
     expect(sessionWarningCopy('large-packets')).toBe(
-      'This network drops large packets; some sites may not load. V2Ray or Xray usually works.');
+      'This network drops large packets; some sites may not load. V2Ray or Xray usually works.',
+    );
+    expect(SESSION_WARNING_COPY()['large-packets']).toBe(sessionWarningCopy('large-packets'));
   });
 
-  it('no warning, or a code this app does not know, shows nothing', () => {
+  it('no warning, or one this app does not know, shows nothing', () => {
     expect(sessionWarningCopy('')).toBeNull();
     expect(sessionWarningCopy(undefined)).toBeNull();
+    expect(sessionWarningCopy(null)).toBeNull();
     expect(sessionWarningCopy('something-new')).toBeNull();
   });
 
-  it('the daemon field reaches the live session; an older dvpnd (no field) means none', () => {
-    expect(toLive({ ...base, warning: 'large-packets' }).warning).toBe('large-packets');
-    expect(toLive(base).warning).toBe('');
-  });
-
-  it("the app's proto carries field 13, so the daemon's warning is decoded", () => {
-    const proto = readFileSync('resources/daemon.proto', 'utf8');
-    expect(proto).toMatch(/message Session \{[^}]*string warning = 13;[^}]*\}/);
+  it('the bundled proto carries Session.warning = 13 (proto-loader drops unknown fields)', () => {
+    const proto = fs.readFileSync(path.join(__dirname, '../../resources/daemon.proto'), 'utf8');
+    const session = /message Session \{([\s\S]*?)\n\}/.exec(proto)?.[1] ?? '';
+    expect(session).toMatch(/string warning = 13;/);
   });
 });

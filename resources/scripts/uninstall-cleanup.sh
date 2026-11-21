@@ -64,13 +64,14 @@ done < /etc/passwd
 # 2. service
 # "Always" (persist) steps down to "on" first: the config stays in the kept home, and a reinstall's
 # first service start re-applied the whole block from it, cutting the machine off before any setup
-# (#31 #84 / 7d58e2d, dvpnd 45574d5 releases the row once the setting no longer asks for it).
+# (the Windows app #84 / 7d58e2d, dvpnd 45574d5 releases the row once the setting no longer asks for it).
 # cb33 home: /var/lib/sentinel-dvpn/c0/config.toml; pre-cb33: /var/lib/dvpnd/client/client/config.toml.
 for c in /var/lib/sentinel-dvpn/c0/config.toml /var/lib/dvpnd/*/client/config.toml; do
   [ -f "$c" ] || continue
   if grep -Eq "^kill_switch = ['\"]persist['\"]" "$c"; then
     # cat, not sed -i: the file keeps its owner and mode (cb33 wants 0600)
-    sed -E "s/^kill_switch = ['\"]persist['\"]/kill_switch = 'on'/" "$c" > "$c.ks" && cat "$c.ks" > "$c" && rm -f "$c.ks" &&
+    # D6 (AUDIT-FINAL the Linux app): atomic_write, not `cat >` (a power loss left a cut config); owner and mode stay
+    sed -E "s/^kill_switch = ['\"]persist['\"]/kill_switch = 'on'/" "$c" > "$c.ks" && atomic_write "$c.ks" "$c" && rm -f "$c.ks" &&
       log "kill switch 'Always' stepped down to 'on' in $c"
     # keep it 'on' for the reinstall's first start too: migrate-daemon-config.sh would move it back to
     # persist. The marker sits next to that config.toml's home (0600: cb33 checks every file in c0).

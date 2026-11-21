@@ -23,3 +23,21 @@ describe('describeProgramError', () => {
     expect(devnetCodeOf('NoSuchError')).toBeNull();
   });
 });
+
+describe('ProgramError: account already in use', () => {
+  it('a second subscription (System Program error 0) reads as plain words, not "Program error 0 (0):"', async () => {
+    const { ProgramError } = await import('../../src/core/chain/errors');
+    const logs = [
+      'Program 11111111111111111111111111111111 invoke [2]',
+      'Allocate: account Address { address: GpKwDwGMCEoMDZ7MNhWG41VVXbyWV1ZAt7Rt38Azas4i, base: None } already in use',
+      'Program 11111111111111111111111111111111 failed: custom program error: 0x0',
+    ];
+    const e = new ProgramError({ err: { InstructionError: [1, { Custom: 0 }] }, logs });
+    expect(e.message).toMatch(/already has a subscription/);
+    expect(e.message).not.toMatch(/Program error/);
+  });
+  it('error 0 without that log line keeps the generic text', async () => {
+    const { ProgramError } = await import('../../src/core/chain/errors');
+    expect(new ProgramError({ err: { InstructionError: [0, { Custom: 0 }] }, logs: [] }).message).not.toMatch(/already has a subscription/);
+  });
+});

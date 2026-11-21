@@ -5,7 +5,7 @@
 //   exe → its `dest`, made executable     (protocol binaries the service finds on its PATH)
 //   zip → only the listed `files` into `dest` (`exec` ones made executable)
 // Every executable must be an ELF for the target arch (a wrong-arch binary only fails at connect).
-// Local binaries (dvpnd) are copied from DVPND_SRC (default: work/devnet-dvpn-dvpnd-devnet/build/
+// Local binaries (dvpnd) are copied from DVPND_SRC (default: ~/dvpnd/build/
 // <file of that arch>, see build/deps.lock.json) and must match their pinned SHA-256.
 // Also writes THIRD-PARTY-NOTICES.txt and the package license text.
 // Usage: node scripts/fetch-deps.mjs [--arch x64|arm64] [--offline]   (offline = cache only)
@@ -22,7 +22,7 @@ const LOCK = JSON.parse(fs.readFileSync(path.join(ROOT, 'build', 'deps.lock.json
 const CACHE = path.join(ROOT, 'build', '.deps-cache');
 const offline = process.argv.includes('--offline');
 const ARCH = targetArch(process.argv.slice(2), process.arch);
-const DVPND_DIR = path.join(os.homedir(), 'Desktop', 'devnet-dvpn-dvpnd-devnet', 'build');
+const DVPND_DIR = path.join(os.homedir(), 'dvpnd', 'build');
 
 const sha256 = (file) => createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 /** Copy unless the destination already has the same bytes (a running tunnel locks its exe). */

@@ -17,7 +17,7 @@ vi.mock('../../src/main/host', () => ({ getHost: () => ({ dataDir: st.dir }) }))
 vi.mock('../../src/main/app-state', () => ({
   snapshot: () => st.state,
   patch: (p: Record<string, unknown>) => { Object.assign(st.state, p); },
-  setSplitInEffect: vi.fn(),
+  setSplitInEffect: vi.fn(), setWholeDeviceInEffect: vi.fn(),
   toast: vi.fn(),
 }));
 vi.mock('../../src/main/daemon/manager', () => {
@@ -49,7 +49,9 @@ vi.mock('../../src/main/services/first-data', () => ({ firstData: async () => un
 vi.mock('../../src/main/services/net-settle', () => ({ waitForDirectPath: async () => true }));
 
 const { connect } = await import('../../src/main/services/connection');
-const req = { node: 'NodeA', basis: 'per_gb' as const, units: 1, confirmed: true as const };
+// U-M4-1 (rc9-c2): every caller that opens a new deposit sends the amount it showed; a shown amount at or above
+// the fresh one never blocks (priceRaised), so the fixtures send one well above the mocked price.
+const req = { node: 'NodeA', basis: 'per_gb' as const, units: 1, confirmed: true as const, shownEscrow: '1000000000000000' };
 const marker = (): string => path.join(st.dir, 'connect-in-progress.json');
 /** What a Disconnect in another process writes (requestCancel). */
 const stopFromOtherProcess = (): void => fs.writeFileSync(path.join(st.dir, 'connect-cancel.json'), JSON.stringify({ pid: process.pid, at: Date.now() }));

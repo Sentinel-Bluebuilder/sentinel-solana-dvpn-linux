@@ -1,5 +1,5 @@
 // ─── Where the cb33 daemon lives on each OS: names, paths, service, CLI arguments ───
-// Shared by every desktop app (#31 Windows, #32 Linux, #33 Mac; #34 Android overrides the paths).
+// Shared by every desktop app (the Windows app Windows, the Linux app Linux, the macOS app Mac; the Android app Android overrides the paths).
 // Upstream cb33092e (and the fork pinned on it) replaced the old layout:
 //   old: binary `dvpnd`, home <root>/dvpnd/client with config.toml + client/config.toml,
 //        `dvpnd init --role client`, key "device", socket_group in [daemon], our own service unit.
@@ -99,7 +99,7 @@ export const firewallObject = (tag = CLIENT_INSTANCE): string => `${PRODUCT_NAME
 /** Tag.EnvPath (Linux): the EnvironmentFile the systemd unit reads. */
 export const serviceEnvFile = (tag = CLIENT_INSTANCE): string => `/etc/${PRODUCT_NAME}/${checkTag(tag)}.env`;
 
-// ─── Android row ───
+// ─── Android row (the Android app; carried by the Linux app from the shared layout f0bde887) ───
 const trimSlash = (dir: string): string => dir.replace(/\/+$/, '');
 /** The c0 home inside the app's files dir (Context.filesDir). */
 export const androidInstanceDir = (filesDir: string, tag = CLIENT_INSTANCE): string => `${trimSlash(filesDir)}/${PRODUCT_NAME}/${checkTag(tag)}`;
@@ -121,6 +121,7 @@ const at = (home?: string): string[] => ['--instance', CLIENT_INSTANCE, ...(home
 
 /** Make a client instance in `home` (reuses a key already in <home>/keys; --new-key would replace it). */
 export const initArgs = (home: string, owner: string): string[] => ['init', ...at(home), '--owner', owner, '--plain-key'];
+/** `sentinel-dvpnd key list` (the daemon binary's own key command, main.go NewKeyCmd; --instance/--home are global). */
 export const keyListArgs = (home?: string): string[] => ['key', 'list', ...at(home)];
 /** The long-running daemon (on Android the app's VPN service runs this itself). */
 export const runArgs = (home: string): string[] => ['run', ...at(home)];

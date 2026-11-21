@@ -15,7 +15,7 @@ import os from 'node:os';
 import { log } from '../logger';
 
 const SAFE_ARG = /^[A-Za-z0-9 _.:/,@+-]+$/;
-export const HELPER_STEPS = ['setup-daemon', 'apply-daemon-config', 'remove-tunnels', 'install-deps', 'uninstall-cleanup', 'service-ctl'] as const;
+export const HELPER_STEPS = ['setup-daemon', 'apply-daemon-config', 'remove-tunnels', 'install-deps', 'uninstall-cleanup', 'service-ctl', 'grant-socket'] as const;
 export type HelperStep = typeof HELPER_STEPS[number];
 
 export interface ElevatedResult { status: 'ok' | 'error' | 'cancelled'; detail: string; [k: string]: unknown }
@@ -86,7 +86,7 @@ export function stageForRoot(src: string, name = path.basename(src)): string {
 
 /** Run a helper step as root with named args; resolves with its result JSON. */
 /**
- * What to report when the step wrote no result file (#31 54b8ca4). pkexec 126/127 = the prompt was
+ * What to report when the step wrote no result file (the Windows app 54b8ca4). pkexec 126/127 = the prompt was
  * dismissed or not authorised. A step cut off by our time limit is not a declined prompt: saying
  * so sends a person hunting for a prompt that never existed. Exported for tests.
  */

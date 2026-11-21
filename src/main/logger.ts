@@ -20,17 +20,35 @@ export function logFile(): string | null {
   return dir ? path.join(dir, 'app.log') : null;
 }
 
-// user:password@ in a URL is a credential too (#33 CLI fuzz: it was printed back)
+// user:password@ in a URL is a credential too (the macOS app CLI fuzz: it was printed back)
 const URL_USERINFO_RE = /((?:https?|wss?):\/\/)[^\s/?#@'"]+@/gi;
 
-/** Strip query strings (RPC API keys live there) and user:password@ from any URL in a string. */
+// A key in the URL path (an RPC gate puts its token there: https://host/c/<token>/) is a credential
+// too; same rule as redactUrl in core/chain/rpc.ts: a path segment of 20+ key characters (FMC-M6).
+const URL_PATH_RE = /((?:https?|wss?):\/\/[^\s/?#'"]+)(\/[^\s?#'"]*)/gi;
+const PATH_KEY_RE = /^[A-Za-z0-9_-]{20,}$/;
+
+/** Strip query strings and path keys (RPC API keys live there) and user:password@ from any URL in a string. */
 export function redactUrls(s: string): string {
-  return s.replace(URL_USERINFO_RE, '$1<redacted>@').replace(URL_QUERY_RE, '$1?<redacted>');
+  return s
+    .replace(URL_USERINFO_RE, '$1<redacted>@')
+    .replace(URL_PATH_RE, (_m, origin: string, p: string) => origin + p.split('/').map((seg) => (PATH_KEY_RE.test(seg) ? '<redacted>' : seg)).join('/'))
+    .replace(URL_QUERY_RE, '$1?<redacted>');
+}
+
+/** Route console.* through the redacting log (Android: the shell copies stderr and any non-JSON stdout line to logcat). */
+export function routeConsoleToLog(): void {
+  const line = (a: unknown[]): string => a.map((x) => (x instanceof Error ? x.message : String(x))).join(' ');
+  console.log = (...a: unknown[]): void => log.info(line(a));
+  console.info = (...a: unknown[]): void => log.info(line(a));
+  console.warn = (...a: unknown[]): void => log.warn(line(a));
+  console.error = (...a: unknown[]): void => log.error(line(a));
 }
 
 export function redact(value: unknown, depth = 0): unknown {
   if (typeof value === 'string') return redactUrls(value);
-  if (value instanceof Error) return { message: redact(value.message), stack: value.stack };
+  // the stack repeats the message, so it carries the same URLs
+  if (value instanceof Error) return { message: redact(value.message), stack: value.stack === undefined ? undefined : redactUrls(value.stack) };
   if (depth > 6 || !value || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
   const out: Record<string, unknown> = {};

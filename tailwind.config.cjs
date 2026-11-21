@@ -18,6 +18,11 @@ module.exports = {
         warn: { DEFAULT: c('--yellow'), soft: 'var(--yellow-soft)' },
         bad: { DEFAULT: c('--red'), soft: 'var(--red-soft)' },
       },
+      // The colour of ANY border that names no colour of its own (`border`, `border-t`, `divide-y`)
+      // and of any border class that produces no rule. Tailwind's own default is a light grey
+      // (#e5e7eb), which drew white boxes in dark mode (owner 2026-11-15). Now it is the theme's
+      // hairline in both themes, app-wide.
+      borderColor: { DEFAULT: 'var(--border)' },
       fontFamily: {
         sans: ['"Outfit Variable"', 'Outfit', '"Segoe UI Variable"', '"Segoe UI"', 'system-ui', 'sans-serif'],
         display: ['Tomorrow', '"Outfit Variable"', 'sans-serif'],
@@ -35,9 +40,14 @@ module.exports = {
         title: ['24px', { lineHeight: '32px', fontWeight: '600' }],
         hero: ['36px', { lineHeight: '40px', fontWeight: '600' }],
       },
-      borderRadius: { DEFAULT: '10px', lg: '14px', xl: '18px' },
+      // Three radii only (docs/DESIGN.md → System): control 8, card 12, dialog 16.
+      // `rounded` = control, `rounded-lg` = card, `rounded-xl` / `rounded-2xl` = dialog.
+      borderRadius: { DEFAULT: '8px', md: '8px', lg: '12px', xl: '16px', '2xl': '16px' },
+      // Motion (docs/DESIGN.md → System): press 120, state 180, enter 240.
+      transitionDuration: { press: '120ms', state: '180ms', enter: '240ms' },
       boxShadow: {
         card: '0 10px 30px rgba(0,0,0,.35)',
+        overlay: '0 24px 64px rgba(0,0,0,.45)',
         glow: '0 0 0 4px rgb(var(--sol-purple) / .18), 0 8px 28px rgb(var(--sol-purple) / .28)',
         'glow-green': '0 0 0 4px rgb(var(--sol-green) / .14), 0 8px 28px rgb(var(--sol-green) / .22)',
       },
@@ -48,8 +58,21 @@ module.exports = {
       keyframes: {
         spinSlow: { to: { transform: 'rotate(360deg)' } },
         breathe: { '0%,100%': { opacity: '.55', transform: 'scale(1)' }, '50%': { opacity: '1', transform: 'scale(1.04)' } },
+        pageEnter: { from: { opacity: '0', transform: 'translateY(6px)' }, to: { opacity: '1', transform: 'none' } },
+        sheetEnter: { from: { opacity: '0', transform: 'translateY(8px) scale(.985)' }, to: { opacity: '1', transform: 'translateY(0) scale(1)' } },
+        fadeIn: { from: { opacity: '0' }, to: { opacity: '1' } },
+        toastEnter: { from: { opacity: '0', transform: 'translateX(12px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
       },
-      animation: { 'spin-slow': 'spinSlow 6s linear infinite', breathe: 'breathe 2.4s ease-in-out infinite' },
+      animation: {
+        'spin-slow': 'spinSlow 6s linear infinite',
+        breathe: 'breathe 2.4s ease-in-out infinite',
+        // 'backwards', not 'both': a transform left on the page after the animation would make every
+        // dialog inside it position against the page instead of the window.
+        'page-enter': 'pageEnter 160ms ease-out backwards',
+        'sheet-enter': 'sheetEnter 240ms ease-out both',
+        'fade-in': 'fadeIn 180ms ease-out both',
+        'toast-enter': 'toastEnter 180ms ease-out both',
+      },
     },
   },
   plugins: [],

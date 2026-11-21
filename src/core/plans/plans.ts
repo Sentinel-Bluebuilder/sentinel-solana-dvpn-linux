@@ -5,7 +5,8 @@
 // owner and TLS pin are checked before the roster is trusted.
 import { allPlans, allProviders, providerByPda, signerAuthorized, subscriptionsByOwner } from '../chain/accounts';
 import { PERM_SIGN_PROVIDER_METADATA, PROGRAM_ID, STATUS_LISTED } from '../chain/idl';
-import { httpsRequest, parseUri, verifySignedMetadata, DOMAIN_PROVIDER_METADATA } from '../nodes/nodeapi';
+import { httpsRequest, parseUri, signedPayload, verifySignedMetadata, DOMAIN_PROVIDER_METADATA } from '../nodes/nodeapi';
+import { ShownError, tr, type Vars } from '../../shared/i18n';
 
 export interface PlanRecord {
   address: string;
@@ -93,8 +94,8 @@ export async function subscriptionsOf(owner: string, now = Math.floor(Date.now()
   })).sort((a, b) => b.openedAt - a.openedAt);
 }
 
-export class ProviderError extends Error {
-  constructor(message: string, public code: string) { super(message); }
+export class ProviderError extends ShownError {
+  constructor(text: string, vars: Vars | undefined, public code: string) { super(text, vars); }
 }
 
 /** DVPN_PROVIDER_API_OVERRIDES=<provider>=https://host:port,… — lab providers not routable from here (test rig only). */
@@ -109,12 +110,13 @@ export function providerApiOverride(address: string, raw = process.env.DVPN_PROV
 /** Provider's verified API origin + TLS pin. */
 export async function providerApi(providerPda: string, { timeoutMs = 8000 } = {}): Promise<{ origin: string; tlsSha256: string }> {
   const p = await providerByPda(providerPda);
-  if (!p) throw new ProviderError(`Provider ${providerPda} not found on chain`, 'provider-not-found');
+  if (!p) throw new ProviderError('Provider {provider} not found on chain', { provider: providerPda }, 'provider-not-found');
   const origin = providerApiOverride(providerPda) ?? parseUri(p.uri)?.origin;
-  if (!origin) throw new ProviderError(`Provider advertises no usable address ("${p.uri}")`, 'provider-no-uri');
+  if (!origin) throw new ProviderError('Provider advertises no usable address ("{address}")', { address: p.uri }, 'provider-no-uri');
   const res = await httpsRequest(`${origin}/v1/metadata`, { timeoutMs, captureCert: true });
-  if (res.status !== 200 || !res.json?.payload) throw new ProviderError(`Provider did not answer (HTTP ${res.status})`, 'provider-unreachable');
-  const m = res.json.payload as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+  if (res.status !== 200 || !res.json?.payload) throw new ProviderError('Provider did not answer (HTTP {status})', { status: res.status }, 'provider-unreachable');
+  // C31-1: the claims come from the signed text, never from JSON.parse's (last) payload member.
+  const m = (signedPayload(res.text) ?? {}) as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   const problems: string[] = [];
   if (!verifySignedMetadata(res.text, res.json, DOMAIN_PROVIDER_METADATA)) problems.push('signature does not verify');
   if (m.owner !== p.owner) problems.push('owner does not match the chain');
@@ -131,18 +133,21 @@ export async function providerApi(providerPda: string, { timeoutMs = 8000 } = {}
     }
   }
   const pin = m.api?.tls_sha256 ? String(m.api.tls_sha256).toLowerCase() : null;
-  if (!pin || !res.certSha256 || pin !== res.certSha256.toLowerCase()) problems.push('TLS certificate does not match its pin');
-  if (problems.length) throw new ProviderError(`Provider metadata rejected: ${problems.join('; ')}`, 'provider-metadata-invalid');
+  if (!pin || !res.certSha256 || pin !== res.certSha256.toLowerCase()) problems.push(tr('TLS certificate does not match its pin'));
+  if (problems.length) throw new ProviderError('Provider details rejected: {problems}', { problems: problems.join('; ') }, 'provider-metadata-invalid');
   return { origin, tlsSha256: pin as string };
 }
 
-export interface RosterEntry { node: string; live: boolean; probedAt: number }
+/** listed (UI-179): false when this app's own server list shows the node's on-chain listing has lapsed; Connect
+ *  refuses such a node before paying ("has not checked in recently"), so the roster must not offer it. Absent =
+ *  the app does not know the node (its own list has not seen it). */
+export interface RosterEntry { node: string; live: boolean; probedAt: number; listed?: boolean }
 
 export async function planRoster(providerPda: string, planPda: string): Promise<RosterEntry[]> {
   const api = await providerApi(providerPda);
   const res = await httpsRequest(`${api.origin}/v1/plans/${planPda}/nodes`, { timeoutMs: 8000, pinSha256: api.tlsSha256 });
   const nodes = (res.json as { nodes?: unknown[] } | null)?.nodes;
-  if (res.status !== 200 || !Array.isArray(nodes)) throw new ProviderError(`Provider roster unavailable (HTTP ${res.status})`, 'provider-roster-failed');
+  if (res.status !== 200 || !Array.isArray(nodes)) throw new ProviderError('Provider server list unavailable (HTTP {status})', { status: res.status }, 'provider-roster-failed');
   return nodes.map((n) => {
     const r = n as Record<string, unknown>;
     return { node: String(r.node), live: !!r.live, probedAt: Number(r.probed_at ?? 0) };

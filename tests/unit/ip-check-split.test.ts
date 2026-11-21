@@ -11,7 +11,7 @@ vi.mock('node:dns/promises', () => ({
   },
 }));
 
-import { inRoutes, publicIp, unbracket, IP_SERVICES } from '../../src/core/quality/quality';
+import { dialHost, inRoutes, publicIp, IP_SERVICES } from '../../src/core/quality/quality';
 
 describe('IP check with an exclude split (VM 2026-10-22)', () => {
   it('matches IPv4 and IPv6 addresses against split routes', () => {
@@ -31,8 +31,8 @@ describe('IP check with an exclude split (VM 2026-10-22)', () => {
   });
 
   it('strips an IPv6 literal\'s brackets (SOCKS dial and the split check need the bare address)', () => {
-    expect(unbracket('[2606:4700:4700::1111]')).toBe('2606:4700:4700::1111');
-    expect(unbracket('1.1.1.1')).toBe('1.1.1.1');
-    expect(unbracket('api.ipify.org')).toBe('api.ipify.org');
+    expect(dialHost(new URL('https://[2606:4700:4700::1111]/'))).toBe('2606:4700:4700::1111');
+    expect(dialHost(new URL('https://1.1.1.1/'))).toBe('1.1.1.1');
+    expect(dialHost(new URL('https://api.ipify.org/'))).toBe('api.ipify.org');
   });
 });

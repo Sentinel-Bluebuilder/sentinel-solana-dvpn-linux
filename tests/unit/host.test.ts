@@ -3,7 +3,7 @@ import { validHost } from '../../src/core/net/host';
 import { isValidRpcUrl } from '../../src/core/chain/rpc';
 import { wholeFlag } from '../../src/core/daemon/flags';
 
-// ─── #34 settings-e2e findings: hosts that can never resolve, prepay back to 0 ───
+// ─── the Android app settings-e2e findings: hosts that can never resolve, prepay back to 0 ───
 describe('validHost', () => {
   it('accepts names and IPs', () => {
     for (const h of ['api.devnet.solana.com', 'localhost', '127.0.0.1', '[::1]', 'a-b.c']) expect(validHost(h)).toBe(true);

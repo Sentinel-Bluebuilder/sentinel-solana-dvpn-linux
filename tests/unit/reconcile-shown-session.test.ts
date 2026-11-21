@@ -16,7 +16,7 @@ vi.mock('../../src/main/app-state', () => ({
     if ('session' in p) seen.session = p.session as { id: string } | null;
     if (p.conn) seen.phase = p.conn.phase;
   },
-  setSplitInEffect: vi.fn(),
+  setSplitInEffect: vi.fn(), setWholeDeviceInEffect: vi.fn(),
   toast: vi.fn(),
 }));
 vi.mock('../../src/main/daemon/manager', () => ({
@@ -31,21 +31,23 @@ vi.mock('../../src/main/services/history', () => ({ recordStart: vi.fn(), record
 vi.mock('../../src/main/services/settlement', () => ({ settleChannelSoon: vi.fn(), settlesOnEnd: (r: string) => !/switching servers/i.test(r) }));
 vi.mock('../../src/main/system/dns-check', () => ({ dnsReallyLeftOver: async () => false, flushDnsCache: vi.fn() }));
 vi.mock('../../src/core/chain/rpc', () => ({ getRpcUrls: () => [], resetRpcTransport: vi.fn(), onRpcRetry: () => () => undefined }));
-vi.mock('../../src/main/daemon/settings', () => ({ getDaemonSettings: () => ({ settings: { dnsServers: [] } }), splitForSession: vi.fn() }));
+vi.mock('../../src/main/daemon/settings', () => ({ serviceUsesTun: () => false, getDaemonSettings: () => ({ settings: { dnsServers: [] } }), splitForSession: vi.fn() }));
 
 const { reconcileShownSession, runningSession, blockedAfterEnd } = await import('../../src/main/services/connection');
 const { closeReasonCopy } = await import('../../src/core/session/state');
 
-// Q0366 pass 2 (2): after dvpnd gave up, the blocked screen showed only "Your internet is not working…".
+// Q0366 pass 2 (port of the Linux app 3044f7e6): after dvpnd gave up, the blocked screen showed only the general text.
 describe('the blocked-internet copy after a session ended on its own', () => {
   it('keeps dvpnd\'s reason and its next step, and offers Restore network', () => {
     const msg = blockedAfterEnd(closeReasonCopy('the connection to this server stopped working'));
     expect(msg).toMatch(/^The connection to this server stopped working\./);
-    expect(msg).toContain('pick another server, or press Restore network');
+    expect(msg).toContain('Pick another server. Or press Restore network');
     expect(msg).toMatch(/\.$/);
   });
-  it('without a reason it is the general blocked copy', () => {
+  it('without a reason it is the general blocked copy (Android: the held-interface text)', () => {
     expect(blockedAfterEnd(null)).toMatch(/^Your internet is not working/);
+    expect(blockedAfterEnd(null, 'held text')).toBe('held text');
+    expect(blockedAfterEnd(closeReasonCopy('the connection to this server stopped working'), 'held text')).toMatch(/^The connection to this server stopped working\./);
   });
 });
 
@@ -159,5 +161,34 @@ describe('the shown session vs what dvpnd runs (Q0361)', () => {
     seen.list = [];
     expect(await reconcileShownSession()).toBe(false);
     expect(seen.session?.id).toBe('s1');
+  });
+});
+
+// Agent M Mac T4 r3 (dvpnd SIGKILL): "Protected" stayed on the card for the whole guard over a held block.
+describe('a session shown Protected while the service restarts', () => {
+  beforeEach(() => { seen.session = { id: 's1' }; seen.phase = 'connected'; });
+  it('reads "Checking the connection…" during it, and Protected again when the restarted service still runs it', async () => {
+    const T = await import('../../src/main/services/service-transition');
+    T.resetServiceTransition();
+    T.beginServiceTransition('the service link dropped');
+    expect(seen.phase).toBe('checking');
+    seen.list = [{ id: 's1', status: 'active' }];
+    expect(await reconcileShownSession(undefined, { afterRestart: true })).toBe(true);
+    expect(seen.phase).toBe('connected');
+    T.resetServiceTransition();
+  });
+  it('gone from the restarted service: ended on the first look (no second miss after a restart)', async () => {
+    const T = await import('../../src/main/services/service-transition');
+    T.resetServiceTransition();
+    T.beginServiceTransition('the service link dropped');
+    seen.list = [];
+    expect(await reconcileShownSession(undefined, { afterRestart: true })).toBe(true);
+    expect(seen.session).toBeNull();
+    T.resetServiceTransition();
+  });
+  it('negative control: with no restart a single miss is not proof (two looks, Q0361)', async () => {
+    seen.list = [];
+    expect(await reconcileShownSession()).toBe(false);
+    expect(seen.session).toEqual({ id: 's1' });
   });
 });

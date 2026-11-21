@@ -3,6 +3,7 @@ import { generateMnemonic, mnemonicToSeedSync, validateMnemonic } from '@scure/b
 import { wordlist } from '@scure/bip39/wordlists/english';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { b58decode } from '../chain/b58';
+import { ShownError } from '../../shared/i18n/shown-error';
 
 // Ported from sentinel-node-manager-solana src/main/services/keys.ts (+ base58 import
 // from plans-solana lib/session.js keypairFromInput).
@@ -41,10 +42,10 @@ export function slip10Master(seed: Uint8Array): { key: Buffer; chainCode: Buffer
 /** Derive along a fully-hardened path (ed25519 supports hardened only). */
 export function slip10Derive(seed: Uint8Array, path: string): Buffer {
   const segments = path.split('/');
-  if (segments[0] !== 'm') throw new Error(`The derivation path "${path}" must start with m/, like m/44'/501'/0'/0'.`);
+  if (segments[0] !== 'm') throw new ShownError('The derivation path "{path}" must start with m/, like {example}.', { path, example: "m/44'/501'/0'/0'" });
   let { key, chainCode } = slip10Master(seed);
   for (const seg of segments.slice(1)) {
-    if (!/^\d+'$/.test(seg)) throw new Error(`Every derivation path segment must be hardened (end with '), unlike "${seg}".`);
+    if (!/^\d+'$/.test(seg)) throw new ShownError('Every derivation path segment must be hardened (end with {mark}), unlike "{segment}".', { mark: "'", segment: seg });
     const index = Number(seg.slice(0, -1)) + HARDENED;
     const data = Buffer.alloc(37);
     data[0] = 0;
@@ -68,10 +69,10 @@ export function keypairFromJson(body: string): Keypair {
   try {
     arr = JSON.parse(body);
   } catch (err) {
-    throw new Error(`That key file is not valid JSON: ${(err as Error).message}`);
+    throw new ShownError('That key file is not valid JSON: {reason}', { reason: (err as Error).message });
   }
   if (!Array.isArray(arr) || arr.length !== 64 || !arr.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
-    throw new Error('That key file is not a Solana key (expected a JSON array of 64 numbers, as written by solana-keygen).');
+    throw new ShownError('That key file is not a Solana key (expected a JSON array of 64 numbers, as written by solana-keygen).');
   }
   return Keypair.fromSecretKey(Uint8Array.from(arr as number[]));
 }
@@ -97,19 +98,19 @@ export function isWalletAddress(addr: string): boolean {
 /** Import any common secret form: 12/24-word phrase, solana-keygen JSON, or base58 secret (Phantom export). */
 export function keypairFromInput(input: string): Keypair {
   const t = String(input ?? '').trim();
-  if (!t) throw new Error('Paste a recovery phrase, a key file, or a private key.');
+  if (!t) throw new ShownError('Paste a recovery phrase, a key file, or a private key.');
   if (t.startsWith('[')) return keypairFromJson(t);
   if (/\s/.test(t)) {
-    if (!isValidMnemonic(t)) throw new Error('That recovery phrase is not valid. Check the words and their order.');
+    if (!isValidMnemonic(t)) throw new ShownError('That recovery phrase is not valid. Check the words and their order.');
     return keypairFromMnemonic(t);
   }
   let raw: Uint8Array;
   try {
     raw = b58decode(t);
   } catch (err) {
-    throw new Error(`That private key is not valid base58: ${(err as Error).message}`);
+    throw new ShownError('That private key is not valid base58: {reason}', { reason: (err as Error).message });
   }
   if (raw.length === 64) return Keypair.fromSecretKey(raw);
   if (raw.length === 32) return Keypair.fromSeed(raw);
-  throw new Error(`A private key is 64 bytes (got ${raw.length}).`);
+  throw new ShownError('A private key is 64 bytes (got {count}).', { count: raw.length });
 }

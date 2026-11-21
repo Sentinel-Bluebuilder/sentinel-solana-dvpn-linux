@@ -66,6 +66,8 @@ if [ -f /etc/systemd/system/sentinel-dvpnd@.service ] && [ -f /var/lib/sentinel-
   # renamed keys and an "on" kill switch (Q0426) before the new binary starts; then the app's copy
   /bin/bash "$S/migrate-daemon-config.sh" --DaemonHome /var/lib/sentinel-dvpn/c0 || true
   ( source "$S/_lib.sh" && refresh_mirror /var/lib/sentinel-dvpn/c0 ) || true
+  # the units too, not only the binaries: the restart policy, PATH and drop-in of THIS version (the Windows app 8deb2d4)
+  ( source "$S/_lib.sh" && write_service_units "$LIB" sentinel-dvpnd@c0 ) || echo 'Devnet dVPN: could not refresh the service units; open the app and install the service again.'
   /bin/bash "$S/start-right.sh" install "$APP/resources/resources/polkit/50-devnet-dvpn.rules" || true
   systemctl daemon-reload
   systemctl try-restart sentinel-dvpnd@c0.service || true

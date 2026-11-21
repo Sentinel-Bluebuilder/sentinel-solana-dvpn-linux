@@ -5,7 +5,7 @@ import { setRpcUrls } from '../../src/core/chain/rpc';
 import { fetchConfig } from '../../src/core/chain/program';
 import { allNodes, allPlans, allProviders, userByOwner, channelsByOwner } from '../../src/core/chain/accounts';
 
-const WALLET = '11111111111111111111111111111111';
+const WALLET = '9enW4xCJrmytnEC6VsJYPbcT2ng3QTUwUkAHSrKR9Xrj';
 if (process.env.SOLANA_RPC_URLS) setRpcUrls(process.env.SOLANA_RPC_URLS.split(','));
 
 describe('devnet chain reads', () => {

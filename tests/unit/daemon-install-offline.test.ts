@@ -1,4 +1,4 @@
-// ─── daemon install with no internet (port of #33 0790fc2, rig 2 installer offline phase) ───
+// ─── daemon install with no internet (port of the macOS app 0790fc2, rig 2 installer offline phase) ───
 // The balances cannot be read offline. A wallet that already set up a device here may still repair
 // the service; any other wallet gets the read error (nothing installed).
 import { describe, it, expect, vi, beforeEach } from 'vitest';

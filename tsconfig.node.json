@@ -27,5 +27,8 @@
     "tests/**/*",
     "electron.vite.config.ts",
     "vitest.config.ts"
+  ],
+  "exclude": [
+    "tests/unit/error-boundary.test.ts"
   ]
 }

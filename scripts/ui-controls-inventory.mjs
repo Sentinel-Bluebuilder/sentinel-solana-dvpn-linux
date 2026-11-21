@@ -13,7 +13,6 @@ const ROOT = 'src/renderer/src';
 const HANDLER = /\b(on[A-Z]\w*)=\{/g;
 
 function walk(dir) {
-  // Sorted by name (byte order): NTFS and ext4 list directories in different orders, so the doc differed per OS.
   return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0)).flatMap((e) => {
     const p = path.join(dir, e.name);
     return e.isDirectory() ? walk(p) : p.endsWith('.tsx') || p.endsWith('.ts') ? [p] : [];

@@ -42,3 +42,10 @@ export async function listApps(chosen: string[] = []): Promise<AppsView> {
     return { supported: true, apps: mergeApps([], [], chosen), error: (err as Error).message };
   }
 }
+
+// ─── App picker (shared ipc.ts SPLIT_APP_PICK, the Windows app Mac b2) ───
+// dvpnd has no per-app split on Linux (the Split screen offers addresses only), so a pick is refused in plain words.
+export const APP_PICK_DIALOG = {};
+export async function resolvePickedApp(_p: string): Promise<{ path: string } | { code: string; error: string }> {
+  return { code: 'unsupported', error: 'Choosing apps does not work on Linux. Split by address range instead.' };
+}

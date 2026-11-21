@@ -57,7 +57,7 @@ export function appExecutable(execPath = process.execPath, env: NodeJS.ProcessEn
 
 /** CLI side of `settings set|reset startWithOs`: write or remove the same autostart entry the app
  *  does (it applied only in main/index.ts before, so the CLI change waited for the app; builder-kb,
- *  port of #33 a70fc91a). Returns a note when it can't (not run from the installed app). */
+ *  port of the macOS app a70fc91a). Returns a note when it can't (not run from the installed app). */
 export function applyStartWithOsFromCli(on: boolean, execPath = process.execPath, env: NodeJS.ProcessEnv = process.env): string | null {
   const exe = appExecutable(execPath, env);
   if (exe) {

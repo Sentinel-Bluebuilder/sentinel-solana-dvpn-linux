@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { call, useApp } from '../lib/store';
 import { POLL_JOBS, POLL_JOB_NAMES, DEFAULT_POLL, validPoll, type PollJob } from '../../../shared/poll';
 import type { AppSettings } from '../../../shared/types';
+import { tr } from '../../../shared/i18n';
 
 export function PollSettings({ settings }: { settings: AppSettings }) {
   const { setSettings, toast } = useApp();
@@ -23,12 +24,12 @@ export function PollSettings({ settings }: { settings: AppSettings }) {
 
   return (
     <div className="card overflow-hidden p-0">
-      <p className="prose-cap border-b border-line px-4 py-3 text-meta text-fg-muted">Background refresh, in seconds. Shorter is fresher but sends more RPC requests (public devnet RPCs rate-limit). Most jobs pause while the window is hidden.</p>
+      <p className="prose-cap border-b border-line px-4 py-3 text-meta text-fg-muted">{tr('Background refresh, in seconds. Shorter is fresher but sends more RPC requests (public devnet RPCs rate-limit). Most jobs pause while the window is hidden.')}</p>
       {POLL_JOB_NAMES.map((k) => (
         <div key={k} className="flex h-12 items-center justify-between gap-6 border-b border-line px-4">
-          <div className="text-sm">{POLL_JOBS[k].label}<span className="num ml-2 text-meta text-fg-muted">{POLL_JOBS[k].min}–{POLL_JOBS[k].max} s, default {POLL_JOBS[k].def}</span></div>
+          <div className="text-sm">{POLL_JOBS[k].label}<span className="num ms-2 text-meta text-fg-muted">{tr('{min}–{max} s, default {def}', { min: POLL_JOBS[k].min, max: POLL_JOBS[k].max, def: POLL_JOBS[k].def })}</span></div>
           <input
-            className="input num w-24 text-right"
+            className="input num w-24 text-end"
             inputMode="numeric"
             value={text[k] ?? ''}
             onChange={(e) => setText((t) => ({ ...t, [k]: e.target.value.replace(/\D/g, '') }))}
@@ -39,7 +40,7 @@ export function PollSettings({ settings }: { settings: AppSettings }) {
         </div>
       ))}
       <div className="flex justify-end bg-bg-raised/40 px-4 py-3">
-        <button className="btn-ghost" onClick={async () => { setSettings(await call<AppSettings>(window.api.IPC.SETTINGS_SET, { poll: DEFAULT_POLL })); toast('success', 'Refresh cadences back to defaults.'); }}>Reset to defaults</button>
+        <button className="btn-ghost" onClick={async () => { setSettings(await call<AppSettings>(window.api.IPC.SETTINGS_SET, { poll: DEFAULT_POLL })); toast('success', 'Refresh cadences back to defaults.'); }}>{tr('Reset to defaults')}</button>
       </div>
     </div>
   );

@@ -28,12 +28,50 @@ B58='^[1-9A-HJ-NP-Za-km-z]{32,44}$'
 
 [ -f "$DVPND" ] && [ -x "$DVPND" ] || die "sentinel-dvpnd not found at $DVPND"
 [ "$(basename "$DVPND")" = sentinel-dvpnd ] || die 'unexpected daemon binary name'
+# L32-1 (the Linux app Phase 2 B audit, H): --Dvpnd and --BinRoot are the caller's, and root installs and runs them (:77, :82,
+# opkey, init, the service). Run from the package (root-owned $PKG_ROOT), only the package's own binaries may go in,
+# so the polkit action (it names only dvpn-helper) cannot be turned into "run my file as root". The AppImage path is
+# unchanged: there root runs a user-owned copy of the scripts anyway (PLATFORM-EXCEPTIONS).
+untrusted_bin() { write_result error "$1" '"code":"binary-not-bundled"'; echo "$1" >&2; exit 1; }
+pkg_real="$(realpath -m "$PKG_ROOT")"
+if [[ "$(realpath -m "$HERE")" == "$pkg_real"/* ]]; then
+  bundled="$pkg_real/resources/resources/bin"
+  [ "$(realpath -m "$DVPND")" = "$bundled/sentinel-dvpnd" ] || untrusted_bin "refused: the VPN service binary must be the installed package's own ($bundled/sentinel-dvpnd), not $DVPND. Nothing was changed."
+  [ -z "${ARG[BinRoot]:-}" ] || [ "$(realpath -m "${ARG[BinRoot]}")" = "$bundled" ] || untrusted_bin "refused: the tunnel tools must be the installed package's own ($bundled), not ${ARG[BinRoot]}. Nothing was changed."
+fi
 [ "$(realpath -m "$HOME_DIR")" = "$STATE_ROOT/c0" ] || die "daemon home must be $STATE_ROOT/c0"
 # the unit cb33 writes names this group; any other would leave the socket unreachable
 [ "$GROUP" = "$DAEMON_GROUP" ] || die "socket group must be $DAEMON_GROUP"
 [ "$SERVICE" = sentinel-dvpnd@c0 ] || die "bad service name $SERVICE"
 if [ -n "$USER_NAME" ]; then id -u "$USER_NAME" >/dev/null 2>&1 || die "no such user $USER_NAME"; fi
+# L32-2: the staged files are read as --User, so it is required with them and must be the account that asked
+if [ -n "$STAGING" ] || [ -n "$CONFIG" ]; then [ -n "$USER_NAME" ] || die 'the login (--User) is required with staged files'; fi
+[ -z "$USER_NAME" ] || check_caller_user "$USER_NAME" || die "--User $USER_NAME is not the account that asked"
+# D1 (AUDIT-FINAL the Linux app, port of the macOS app M8): root deletes --Staging (rm -rf) and --Config (rm -f) at the end, and the
+# helper's polkit rule is auth_admin_keep, so these paths are the root boundary. Only ever the app's own
+# daemon-staging / daemon-switch folder, or <data>/migrate/config.toml: the canonical path must equal the given one
+# (no link anywhere in the chain) and, with --User, sit under that user's real home (DVPN_DATA_DIR keeps working).
+user_home_real=""
+if [ -n "$USER_NAME" ]; then
+  user_home="$(getent passwd "$USER_NAME" | cut -d: -f6)"
+  user_home_real="$(cd -P -- "${user_home:-/nonexistent}" 2>/dev/null && pwd -P)" || die "no home folder for $USER_NAME"
+fi
+check_user_path() { # <canonical path> <given path>
+  [ -z "$user_home_real" ] && return 0
+  case "$1" in "$user_home_real"/?*) ;; *) die "$2 is not under $USER_NAME's home $user_home_real" ;; esac
+}
+if [ -n "$STAGING" ]; then
+  [[ "$STAGING" == /* && "$STAGING" != *..* ]] && [ ! -L "$STAGING" ] || die "unsafe staging folder $STAGING"
+  staging_real="$(cd -P -- "$STAGING" 2>/dev/null && pwd -P)" || die "staging folder not found: $STAGING"
+  [ "$staging_real" = "$STAGING" ] || die "unsafe staging folder $STAGING (resolves to $staging_real)"
+  case "$(basename -- "$staging_real")" in daemon-staging|daemon-switch) ;; *) die "unexpected staging folder $STAGING" ;; esac
+  check_user_path "$staging_real" "staging folder $STAGING"
+fi
 if [ -n "$CONFIG" ]; then
+  [[ "$CONFIG" == /* && "$CONFIG" != *..* ]] || die "unsafe staged config $CONFIG"
+  config_dir_real="$(cd -P -- "$(dirname -- "$CONFIG")" 2>/dev/null && pwd -P)" || die "staged config folder not found: $CONFIG"
+  [ "$config_dir_real/$(basename -- "$CONFIG")" = "$CONFIG" ] && [ "$(basename -- "$CONFIG")" = config.toml ] && [ "$(basename -- "$config_dir_real")" = migrate ] || die "unexpected staged config $CONFIG"
+  check_user_path "$config_dir_real" "staged config $CONFIG"
   [ -f "$CONFIG" ] && [ ! -L "$CONFIG" ] && [ "$(stat -c %s "$CONFIG")" -le 65536 ] || die "bad staged config $CONFIG"
   [ "$(realpath -m "$LEGACY")" = /var/lib/dvpnd/client ] || die 'old service home must be /var/lib/dvpnd/client'
   [[ "$OWNER" =~ $B58 ]] && [[ "$DEVICE" =~ $B58 ]] || die 'owner and device must be Solana addresses'
@@ -95,14 +133,31 @@ opkey() {
   return 0
 }
 KEY_SRC=""; CFG_SRC=""; WANT=""
+# D2 (AUDIT-FINAL the Linux app, port of the macOS app C1/C2): root reads ONLY a root-owned snapshot of what the user staged. The staged
+# key and config.toml are user files: read in place, a link (planted, or swapped in after a check) put root-only
+# bytes into the service config and from there into the user-readable mirror. Copy first, refuse any link.
+install -d -m 755 -o root -g root "$STATE_ROOT" || die "could not create $STATE_ROOT"
+snap="$(mktemp -d "$STATE_ROOT/.staged.XXXXXX")" || die 'could not make a folder for the staged files'
+trap 'rm -rf -- "$snap"' EXIT
+if [ -n "$CONFIG" ]; then
+  # L32-2: one name only, read by the user (head stops at 64 KiB + 1, checked below)
+  [ ! -L "$CONFIG" ] && [ -f "$CONFIG" ] && [ "$(stat -c %h -- "$CONFIG")" = 1 ] || die "staged config is not a plain file with one name: $CONFIG"
+  as_user "$USER_NAME" head -c 65537 -- "$CONFIG" > "$snap/config.toml" || die "could not read the staged config $CONFIG"
+  if [ -L "$snap/config.toml" ] || [ ! -f "$snap/config.toml" ]; then die "staged config is not a plain file: $CONFIG"; fi
+  [ "$(stat -c %s "$snap/config.toml")" -le 65536 ] || die "bad staged config $CONFIG"
+elif [ -n "$STAGING" ] && [ -f "$STAGING/config.toml" ]; then
+  copy_as_user "$USER_NAME" "$STAGING" "$snap/home" || die "could not read the staging folder $STAGING"
+  if [ -n "$(find "$snap/home" -type l -print 2>/dev/null | head -1)" ]; then die "the staging folder holds a link; refused: $STAGING"; fi
+  has_hardlink "$snap/home" && die "the staging folder holds a hard link; refused: $STAGING"
+fi
 if [ -n "$CONFIG" ]; then
   # Upgrade: the old service goes first (it holds the old socket and kill switch).
   # The old daemon kept keys under its role folder: <home>/client/keys (r2: /var/lib/dvpnd/client/client/
-  # keys/device.json; same in #31 migrate-home.ts). Same plain format in cb33, so a copy is enough.
+  # keys/device.json; same in the Windows app migrate-home.ts). Same plain format in cb33, so a copy is enough.
   KEY_SRC="$LEGACY/client/keys/device.json"
   [ -f "$KEY_SRC" ] || KEY_SRC="$LEGACY/keys/device.json"
   [ -f "$KEY_SRC" ] || die "the old service home has no device key ($LEGACY/client/keys/device.json)"
-  WANT="$DEVICE"; CFG_SRC="$CONFIG"
+  WANT="$DEVICE"; CFG_SRC="$snap/config.toml"
   if [ "$(systemctl show -p LoadState --value dvpnd-client 2>/dev/null)" = loaded ]; then
     systemctl disable --now dvpnd-client >/dev/null 2>&1
   fi
@@ -110,11 +165,11 @@ if [ -n "$CONFIG" ]; then
   systemctl daemon-reload
   echo "old dvpnd-client service removed; its home stays at $LEGACY" >&2
 elif [ -n "$STAGING" ] && [ -f "$STAGING/config.toml" ]; then
-  KEY_SRC="$STAGING/keys/operator.json"
+  KEY_SRC="$snap/home/keys/operator.json"
   [ -f "$KEY_SRC" ] || die "staging home has no operator key: $STAGING"
-  WANT="$(opkey "$STAGING")"; CFG_SRC="$STAGING/config.toml"
+  WANT="$(opkey "$snap/home")"; CFG_SRC="$snap/home/config.toml"
   [ -n "$WANT" ] || die 'could not read the staged device key'
-  # A wallet switch stages a NEW device key (fleet W1, #31): an existing service home must not win, or the
+  # A wallet switch stages a NEW device key (fleet W1, the Windows app): an existing service home must not win, or the
   # staged key is deleted below while the app shows the new device as ready. Staged key ≠ installed key →
   # stop the service and keep the old home next to it (its deposits can still be settled), then install.
   if [ -f "$HOME_DIR/config.toml" ]; then
@@ -137,7 +192,7 @@ if [ ! -f "$HOME_DIR/config.toml" ]; then
   "$DVPND" init --instance c0 --owner "$OWNER" --plain-key >/dev/null || die 'sentinel-dvpnd init failed for the service home'
   GOT="$(opkey "$HOME_DIR")"
   [ "$GOT" = "$WANT" ] || die "the service home has device ${GOT:-none}, expected $WANT"
-  cat "$CFG_SRC" > "$HOME_DIR/config.toml" || die 'could not write the service settings'
+  atomic_write "$CFG_SRC" "$HOME_DIR/config.toml" || die 'could not write the service settings'
 fi
 # a home from an older build still has the old key names / an "on" kill switch (Q0426)
 /bin/bash "$HERE/migrate-daemon-config.sh" --DaemonHome "$HOME_DIR" >/dev/null || die 'could not update the service settings to the new key names'
@@ -173,31 +228,9 @@ if [ -n "$USER_NAME" ] && command -v setfacl >/dev/null; then
 fi
 
 # 5. the service: cb33's own units, then ours as drop-ins (cb33 keeps other files in the drop-in folder)
-"$DVPND" service install --instance c0 >/dev/null || die 'sentinel-dvpnd service install failed'
-# PATH for the service (EnvironmentFile in cb33's unit): our tool copies FIRST, so a same-named
-# program elsewhere on the PATH never runs as root in their place.
-SVC_PATH=""
-for d in v2ray xray hysteria2; do [ -d "$LIB/$d" ] && SVC_PATH="$SVC_PATH$LIB/$d:"; done
-SVC_PATH="${SVC_PATH}/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-install -d -m 755 /etc/sentinel-dvpn
-printf '# Written by Devnet dVPN (setup-daemon.sh)\nPATH=%s\n' "$SVC_PATH" > /etc/sentinel-dvpn/c0.env && chmod 644 /etc/sentinel-dvpn/c0.env
-# Backoff: cb33 restarts every 5 s forever, and each failed preflight (a device without its grant, a
-# busy RPC) spends RPC calls: Rocky 9 hit 118 restarts and the public RPC throttled it. systemd ≥ 254
-# grows the gap 5 s → 5 min; older systemd (EL9 252, Ubuntu 22.04 249) ignores that, so a flat 20 s.
-SD_VER=$(systemctl --version 2>/dev/null | awk 'NR==1{print $2+0}')
-BACKOFF='RestartSteps=8
-RestartMaxDelaySec=300'
-[ "${SD_VER:-0}" -lt 254 ] && BACKOFF='RestartSec=20'
-DROP="/etc/systemd/system/$SERVICE.service.d"
-install -d -m 755 "$DROP"
-# '+' = outside the unit's ProtectSystem=strict sandbox: host-firewall.sh changes ufw / firewalld.
-# data.db needs no chmod any more: sentinel-dvpnd runs with umask 077, so it and -wal/-shm are 0600.
-cat > "$DROP/50-devnet-dvpn.conf" <<UNIT
-# Written by Devnet dVPN (setup-daemon.sh). Removed by its uninstaller.
-[Service]
-ExecStartPre=-+/bin/bash $LIB/host-firewall.sh allow
-$BACKOFF
-UNIT
+# cb33's template unit + socket, the service PATH and our restart drop-in: _lib.sh write_service_units,
+# shared with the package upgrade (after-install.sh) so an upgrade carries the current policy too.
+write_service_units "$LIB" "$SERVICE" || die 'could not write the service units'
 # The socket is systemd's (cb33's .socket unit, 0660 group sentinel-dvpn): give this login rw on it each
 # time systemd creates it. It outlives service restarts, so a crash no longer leaves a socket without the ACL.
 SDROP="/etc/systemd/system/$SERVICE.socket.d"

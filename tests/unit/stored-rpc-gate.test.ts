@@ -3,7 +3,7 @@
 // so the kill switch never persisted. A typed --rpc must still be https; the stored one is kept, still character-checked.
 import fs from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { readToml, renderConfig, renderConfigs, validateSettings, type DaemonSettings } from '../../src/core/daemon/config';
+import { readToml, renderConfig, renderConfigs, validateForApply, validateSettings, type DaemonSettings } from '../../src/core/daemon/config';
 
 const ROOT = fs.readFileSync('tests/fixtures/dvpnd-root.v2.config.toml', 'utf8');
 const CLIENT = fs.readFileSync('tests/fixtures/dvpnd-client.v2.config.toml', 'utf8');
@@ -23,17 +23,16 @@ describe('a stored http RPC gate does not block daemon set', () => {
   it('a typed RPC still has to be https/wss (control)', () => {
     expect(() => validateSettings(GATE)).toThrow(/https/);
     expect(() => validateSettings({ ...BASE, rpcWsUrl: 'ws://x.example' })).toThrow(/wss/);
-    expect(() => validateSettings(GATE, { storedRpc: true })).not.toThrow();
+    expect(() => validateSettings(GATE, { allowInsecureRpc: true })).not.toThrow();
   });
   it('a stored value with a quote or a bad scheme is still refused', () => {
-    expect(() => validateSettings({ ...GATE, rpcUrl: 'http://x.example/"\nkill_switch = "off' }, { storedRpc: true })).toThrow();
-    expect(() => validateSettings({ ...GATE, rpcUrl: 'ftp://x.example' }, { storedRpc: true })).toThrow(/https/);
+    expect(() => validateSettings({ ...GATE, rpcUrl: 'http://x.example/"\nkill_switch = "off' }, { allowInsecureRpc: true })).toThrow();
+    expect(() => validateSettings({ ...GATE, rpcUrl: 'ftp://x.example' }, { allowInsecureRpc: true })).toThrow(/https/);
   });
-  it('the CLI pre-flight and the app path are strict only when the RPC changes', () => {
-    const cli = fs.readFileSync('src/cli/daemon-cmd.ts', 'utf8');
-    expect(cli).toContain("const rpcTyped = !!(str(a, 'rpc') || str(a, 'rpc-ws'));");
-    expect(cli).toContain('validateSettings(next, { storedRpc: !rpcTyped })');
-    const app = fs.readFileSync('src/main/daemon/settings.ts', 'utf8');
-    expect(app).toContain('validateSettings(next, { storedRpc: next.rpcUrl === stored.rpcUrl && next.rpcWsUrl === stored.rpcWsUrl })');
+  // the Windows app's apply check (validateForApply) replaces Linux's storedRpc flag: lax only for an unchanged stored RPC.
+  it('apply is strict only when the RPC changes', () => {
+    expect(() => validateForApply(GATE, GATE)).not.toThrow();
+    expect(() => validateForApply(GATE, BASE)).toThrow(/https/);
+    expect(() => validateForApply({ ...BASE, killSwitch: 'off' } as DaemonSettings, BASE)).not.toThrow();
   });
 });

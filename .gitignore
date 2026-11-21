@@ -28,5 +28,9 @@ build/license.txt
 secrets/
 *wallet*.keystore
 id.json
+!docs/i18n/terms/id.json
 client.json
 /results/
+
+# local one-off driver scripts (not part of the product)
+scratch-*

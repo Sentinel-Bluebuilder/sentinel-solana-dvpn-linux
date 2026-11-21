@@ -6,7 +6,7 @@ import { log } from '../main/logger';
 import { runJobNow } from '../main/scheduler';
 import { patch, snapshot } from '../main/app-state';
 import { refreshWallet } from '../main/services/wallet';
-import { adoptRunningSession, sessionStateUnknown } from '../main/services/connection';
+import { adoptRunningSession, blockedNoSessionView, sessionStateUnknown } from '../main/services/connection';
 import { daemonInfo } from '../main/daemon/manager';
 import { getDaemonSettings } from '../main/daemon/settings';
 import { clearSystemProxy, systemProxyActive } from '../main/system/proxy';
@@ -15,8 +15,9 @@ import { formatBytes } from '../shared/format';
 import { tdvpn, sol } from '../core/chain/amounts';
 import { MODE_STREAM } from '../core/chain/idl';
 import { channelByPda } from '../core/chain/accounts';
-import { internetReachable as coreInternetReachable } from '../core/quality/reachability';
+import { internetReachable } from '../core/quality/reachability';
 import { getRpcUrls } from '../core/chain/rpc';
+import { sessionWarningCopy, RECONNECTING_TITLE, type ConnView } from '../core/session/state';
 
 /** How the live session is paid: a plan has no channel; a deposit is per hour (stream) or per GB. */
 export function paymentLabel(channel: string, mode: number | null): string {
@@ -28,14 +29,14 @@ export function paymentLabel(channel: string, mode: number | null): string {
 /** Plain-internet probe for the blocked-internet advice: the core's TCP-only check (no data sent,
  *  never the RPC hosts the kill switch leaves open), so it honours "IP check and speed test: Off
  *  = never contacted" (builder-kb C15: this used to fetch two third-party check sites). */
-async function internetReachable(timeoutMs: number): Promise<boolean> {
+export async function internetProbe(timeoutMs: number): Promise<boolean> {
   // Each dial gets what is left of the status budget: with the kill switch blocking, every dial waits it out (DROP).
-  const ok = await coreInternetReachable(getRpcUrls(), { timeoutMs });
+  const ok = await internetReachable(getRpcUrls(), { timeoutMs });
   if (!ok) log.info('status: internet probe failed (no TCP connect to any plain target)');
   return ok;
 }
 
-// Q0372 (FLX2, TWD; port of #31 dc885db): during a tunnel cut with the kill switch on, every network
+// Q0372 (FLX2, TWD; port of the Windows app dc885db): during a tunnel cut with the kill switch on, every network
 // read waits for its own timeout (the RPC and IP services sit behind the dead tunnel), one after
 // another: status took 71-90 s. Each read now gets STATUS_NET_BUDGET_MS, the wallet read and IP check
 // run together, and a read that misses the budget shows as unknown (the CLI exits 400 ms after
@@ -100,7 +101,7 @@ export const statusCmd: Cmd = async (_a, o) => {
   const noSession = adoptDone && !snapshot().session && !sessionStateUnknown();
   const leftoverRead = noSession ? within(leftoverTunnels(), left(), 'the leftover-tunnel check') : null;
   const internetMs = left();
-  const internetRead = noSession ? within(internetReachable(internetMs), internetMs + 300, 'the internet check') : null;
+  const internetRead = noSession ? within(internetProbe(internetMs), internetMs + 300, 'the internet check') : null;
   const live = snapshot().session;
   const modeRead = live?.channel ? within(channelMode(live.channel), left(), 'the deposit read') : Promise.resolve(undefined);
   const [wallet, , mode] = await Promise.all([walletRead, within(ipCheck(), left(), 'the IP check'), modeRead]);
@@ -108,7 +109,7 @@ export const statusCmd: Cmd = async (_a, o) => {
   const d = daemonInfo();
   const pay = live ? paymentLabel(live.channel, mode ?? null) : '';
   const s = snapshot();
-  // Q0373 (port of #31 a67c5ef): a running dvpnd that did not answer may be redialing: never
+  // Q0373 (port of the Windows app a67c5ef): a running dvpnd that did not answer may be redialing: never
   // "Not connected", no Restore advice.
   const unknown = !s.session && (sessionStateUnknown() || !adoptDone);
   const ipLine = s.session && s.publicIp?.sid === s.session.id
@@ -122,7 +123,10 @@ export const statusCmd: Cmd = async (_a, o) => {
   ];
   if (ipLine) lines.push(ipLine);
   if (s.session && s.conn.detail) lines.push(`         ${s.conn.detail}`);
-  // A tunnel with no session behind it (gaps #29, #32) blocks or silently reroutes traffic.
+  // dvpnd's live warning (Q0357 "large-packets"): the same words as the app's Home banner (the macOS app).
+  const warning = sessionWarningCopy(s.session?.warning);
+  if (warning) lines.push(`Warning  ${warning}`);
+  // A tunnel with no session behind it (gaps another project, the Linux app) blocks or silently reroutes traffic.
   const leftover = s.session || unknown || !leftoverRead ? [] : (await leftoverRead) ?? [];
   if (leftover.length) lines.push(`Leftover ${leftover.join(', ')} still running with no session: run "daemon restore-network"`);
   // A system proxy we set for a session that has since ended (process killed, node gone, no app
@@ -139,15 +143,34 @@ export const statusCmd: Cmd = async (_a, o) => {
   // line can read fine while every other site is blocked (dvpnd ddv10+ holds the block after it
   // crashed mid-session, persist mode holds it after a restart): probe an ordinary site.
   const internet = s.session || unknown || !internetRead ? null : (await internetRead) ?? null;
-  // Same advice as "disconnect": with the kill switch On (= persist, Q0426) a no-session disconnect keeps the block (kdp173), so
-  // pointing at "disconnect" there sent users in a circle (Linux matrix ks-persist 2026-10-22).
-  if (internet === false) lines.push(blockedAdvice(getDaemonSettings().settings.killSwitch));
-  o.print(lines.join('\n'), { owner: s.owner, wallet: w, daemon: d, conn: s.conn, session: s.session, payment: pay || null, coverage: s.coverage, publicIp: s.publicIp, homeIp: s.homeIp, leftover, internet });
+  // Same advice as "disconnect": with the kill switch On (= persist, Q0426) a no-session disconnect keeps the block, so
+  // pointing at "disconnect" there sent users in a circle (the Linux app matrix ks-persist 2026-10-22).
+  if (internet === false) {
+    // Q0500 (Linux KSM2): 'Not connected' alone hid that the kill switch blocks the internet.
+    const i = lines.findIndex((l) => l.startsWith('Session  '));
+    if (i >= 0 && !s.session) lines[i] = 'Session  Not connected. The internet is blocked (kill switch or network down).';
+    // CODE-AUDIT M13 (A): --json `conn` says blocked too (restoreNetwork: true), the app's own view (connection.ts).
+    if (!s.session) patch({ conn: blockedNoSessionView() });
+    lines.push(blockedAdvice(getDaemonSettings().settings.killSwitch));
+  }
+  // E-41 (C): a reconnect that holds the internet names the way out, in text and --json.
+  const reconnectNext = reconnectBlockedNext(snapshot().conn);
+  if (reconnectNext) lines.push(`Next     ${reconnectNext}`, `Also     ${RECONNECT_BLOCKED_ALSO}`);
+  o.print(lines.join('\n'), { ...(reconnectNext ? { next: reconnectNext, alsoNext: RECONNECT_BLOCKED_ALSO } : {}), owner: s.owner, wallet: w, daemon: d, conn: snapshot().conn, session: s.session, payment: pay || null, coverage: s.coverage, publicIp: s.publicIp, homeIp: s.homeIp, leftover, internet });
 };
+
+/** E-41 (C, Linux rc.3): reconnecting under the kill switch said "internet blocked" with no way out. */
+// E-87 (Linux rc.6 Q5, review): `next` is ONE runnable command (as E-86); the reconnect or the close is alsoNext.
+export const RECONNECT_BLOCKED_NEXT = 'devnet-dvpn daemon restore-network';
+export const RECONNECT_BLOCKED_ALSO = 'then devnet-dvpn agent up --yes to reconnect, or devnet-dvpn agent down --yes to close the deposit';
+/** The next step while a session reconnects with the internet held (not the "going direct" reconnect), else null. */
+export function reconnectBlockedNext(conn: Pick<ConnView, 'phase' | 'title'> | null | undefined): string | null {
+  return conn?.phase === 'reconnecting' && conn.title === RECONNECTING_TITLE().blocked ? RECONNECT_BLOCKED_NEXT : null;
+}
 
 /** What to tell a user whose internet is blocked with no session, per kill-switch mode. */
 export function blockedAdvice(killSwitch: string | undefined): string {
   return killSwitch === 'persist'
     ? 'Internet blocked or down. The kill switch keeps it blocked after a crash or restart: reconnect, or run "daemon restore-network" to get the internet back.'
-    : 'Internet blocked or down. If the kill switch is still blocking (after a crash or restart), "disconnect" gives the internet back.';
+    : 'Internet blocked or down. If the kill switch is still blocking (after a crash or restart), run "devnet-dvpn daemon restore-network" to get the internet back.'; // AUD-2 M9
 }

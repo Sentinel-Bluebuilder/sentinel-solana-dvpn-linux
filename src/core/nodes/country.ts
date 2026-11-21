@@ -3,15 +3,16 @@
 // into Node and Chromium) instead of a hand-kept map. Continent grouping is
 // ported from the Sentinel JS SDK app-helpers.js CONTINENT_BY_CODE idea.
 
+import { tr } from '../../shared/i18n';
 let regionNames: Intl.DisplayNames | null = null;
 // Short common names (Sentinel SDK COUNTRY-FLAGS standard) where Intl's CLDR name is
 // long or political ("Hong Kong SAR China", "Myanmar (Burma)", "Congo - Kinshasa").
-const DISPLAY: Record<string, string> = {
-  HK: 'Hong Kong', MO: 'Macau', CD: 'DR Congo', CG: 'Republic of the Congo', MM: 'Myanmar', PS: 'Palestine',
-  KR: 'South Korea', KP: 'North Korea', RU: 'Russia', TR: 'Turkey', CZ: 'Czech Republic', VN: 'Vietnam',
+const DISPLAY = (): Record<string, string> => ({
+  HK: tr('Hong Kong'), MO: 'Macau', CD: tr('DR Congo'), CG: tr('Republic of the Congo'), MM: 'Myanmar', PS: 'Palestine',
+  KR: tr('South Korea'), KP: tr('North Korea'), RU: 'Russia', TR: 'Turkey', CZ: tr('Czech Republic'), VN: 'Vietnam',
   IR: 'Iran', SY: 'Syria', LA: 'Laos', MD: 'Moldova', TZ: 'Tanzania', BO: 'Bolivia', VE: 'Venezuela',
-  XK: 'Kosovo', CI: "Côte d'Ivoire", BA: 'Bosnia and Herzegovina', MK: 'North Macedonia', US: 'United States', GB: 'United Kingdom',
-};
+  XK: 'Kosovo', CI: tr('Côte d\'Ivoire'), BA: tr('Bosnia and Herzegovina'), MK: tr('North Macedonia'), US: tr('United States'), GB: tr('United Kingdom'),
+});
 
 // Names and variants a node operator (or a metadata field) may report, lower-case → ISO (F6.8).
 const VARIANTS: Record<string, string> = {
@@ -54,7 +55,7 @@ export function countryNameToCode(input: string): string {
 export function countryName(code: string): string {
   const c = String(code ?? '').toUpperCase();
   if (!/^[A-Z]{2}$/.test(c)) return 'Unknown';
-  if (DISPLAY[c]) return DISPLAY[c];
+  if (DISPLAY()[c]) return DISPLAY()[c];
   try {
     regionNames ??= new Intl.DisplayNames(['en'], { type: 'region' });
     return regionNames.of(c) ?? c;

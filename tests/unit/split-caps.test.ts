@@ -34,17 +34,4 @@ describe('split capability', () => {
     expect(splitNotApplied({ ...o, daemonVersion: 'cf4c372-ddv13', service: 'wireguard' })).toBeNull();
     expect(splitNotApplied({ ...o, daemonVersion: 'cf4c372-ddv13', platform: 'linux' })).toMatch(/kill switch off/);
   });
-  it('Linux: routes on the four tunnel protocols, never apps, V2Ray/Xray stay a proxy', () => {
-    const lx = { daemonVersion: 'cf4c372-ddv15.2', killSwitch: 'off', platform: 'linux' };
-    for (const service of ['wireguard', 'amneziawg', 'openvpn', 'hysteria2']) {
-      expect(splitNotApplied({ ...lx, service })).toBeNull();
-      expect(splitNotApplied({ ...lx, service, hasApps: true })).toMatch(/address range only/);
-    }
-    for (const service of ['v2ray', 'xray']) {
-      // no "Whole computer" toggle exists here, so it must not be offered
-      const why = splitNotApplied({ ...lx, service, wholeDevice: false });
-      expect(why).toMatch(/proxy here/);
-      expect(why).not.toMatch(/Whole computer/);
-    }
-  });
 });

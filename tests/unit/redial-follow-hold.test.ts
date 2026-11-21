@@ -9,7 +9,7 @@ vi.mock('../../src/main/host', () => ({ getHost: () => ({ emit: () => undefined 
 const { patch, snapshot, setRedialFollow, setIpChecksOff } = await import('../../src/main/app-state');
 const { viewFor } = await import('../../src/core/session/state');
 
-const NODE = '203.0.113.141';
+const NODE = '136.115.100.141';
 const session = (id: string) => ({ id, node: 'N', status: 'active', service: 'wireguard', rxBytes: '0', txBytes: '0', seconds: '0', spent: '0', channel: '', proxyEndpoint: '', error: '', warning: '', startedAt: 1 });
 const ipOf = (sid: string) => ({ ip: NODE, source: 't', at: Date.now(), sid, nodeIp: NODE });
 
@@ -17,7 +17,7 @@ describe('following a reconnect onto a new session', () => {
   beforeEach(() => {
     setIpChecksOff(false);
     setRedialFollow(null);
-    patch({ session: null, conn: viewFor('idle'), publicIp: null, homeIp: '198.51.100.154' });
+    patch({ session: null, conn: viewFor('idle'), publicIp: null, homeIp: '34.171.2.154' });
   });
 
   it('holds "Reconnecting" through dvpnd\'s updates until the new session\'s IP check, then Protected', () => {
@@ -37,7 +37,7 @@ describe('following a reconnect onto a new session', () => {
 
   it('a real dvpnd reconnect of the new session is shown as dvpnd says, not lifted by our hold', () => {
     setRedialFollow('new');
-    patch({ session: session('new'), conn: viewFor('reconnecting', 'The daemon is retrying the connection.') });
+    patch({ session: session('new'), conn: viewFor('reconnecting', 'The VPN service is reconnecting to the server.') });
     patch({ publicIp: ipOf('new') });
     expect(snapshot().conn.phase).toBe('reconnecting');
   });

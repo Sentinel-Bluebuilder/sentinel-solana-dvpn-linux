@@ -2,13 +2,14 @@
 // Subscribe directly to any provider's plan; connect to any node on its roster.
 import { useEffect, useState } from 'react';
 import { call, useApp } from '../lib/store';
-import { ConfirmModal, CopyAddr, PageHeader, Section, Skeleton, Flag } from '../components/ui';
+import { ConfirmModal, CopyAddr, PageHeader, Section, Sheet, Skeleton, Flag } from '../components/ui';
 import { ProtocolList } from '../components/ProtocolMark';
 import { ConnectSheet } from '../components/ConnectSheet';
-import { tdvpn, formatTdvpn, short, formatCountdown, plural, formatPeriod as duration } from '../../../shared/format';
+import { tdvpn, formatTdvpn, formatTdvpnShort, short, formatCountdown, plural, formatPeriod as duration, planLength } from '../../../shared/format';
 import type { AppSnapshot, PlanRecord, NodeView, SubscriptionRecord } from '../../../shared/types';
 
 import type { RosterEntry } from '../../../core/plans/plans';
+import { tr, trPlural } from '../../../shared/i18n';
 
 
 export function Plans({ snap }: { snap: AppSnapshot }) {
@@ -46,25 +47,25 @@ export function Plans({ snap }: { snap: AppSnapshot }) {
     return (
       <div key={s.address} className="flex min-h-14 items-center gap-4 border-t border-line px-4 py-2 first:border-t-0">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">Plan <CopyAddr text={s.plan} /></div>
-          <div className="text-meta text-fg-muted">{s.active && left > 0 ? `${formatCountdown(left)} left` : 'Expired'} · provider {short(s.provider)}</div>
+          <div className="text-sm font-medium">{tr('Plan')} <CopyAddr text={s.plan} /></div>
+          <div className="text-meta text-fg-muted">{tr('Provider {provider}:', { provider: short(s.provider) })} {s.active && left > 0 ? `${formatCountdown(left)} left` : 'expired'}</div>
         </div>
-        {s.active && left > 0 && <button data-roster={s.address} className="btn-primary btn-sm" onClick={() => void openRoster(s)}>Servers</button>}
-        <button className="btn-ghost btn-sm" onClick={() => setClosing(s)}>{left > 0 ? 'Cancel' : 'Remove'}</button>
+        {s.active && left > 0 && <button data-roster={s.address} className="btn-primary btn-sm" onClick={() => void openRoster(s)}>{tr('Servers')}</button>}
+        <button className="btn-ghost btn-sm" onClick={() => setClosing(s)}>{left > 0 ? tr('Cancel') : tr('Remove')}</button>
       </div>
     );
   };
 
   return (
     <div>
-      <PageHeader title="Plans" subtitle="Subscribe to a provider's plan and connect to any of its servers." />
+      <PageHeader title={tr('Plans')} subtitle={tr('Subscribe once, then use any of its servers.')} />
 
-      <Section title="Your subscriptions" right={<button className="btn-ghost btn-sm" data-plans-refresh disabled={refreshing} onClick={() => void refreshSubs()}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}>
+      <Section title={tr('Your subscriptions')} right={<button className="btn-ghost btn-sm" data-plans-refresh disabled={refreshing} onClick={() => void refreshSubs()}>{refreshing ? 'Refreshing…' : 'Refresh'}</button>}>
         <div className={snap.subscriptions.length ? 'card overflow-hidden p-0' : ''}>
-          {!snap.subscriptions.length && <div className="empty-box">No subscriptions yet.</div>}
+          {!snap.subscriptions.length && <div className="empty-box">{tr('No subscriptions yet. Pick a plan below: you pay once and can use any of its servers until it ends.')}</div>}
           {live.map(subRow)}
           {ended.length > 0 && (
-            <button className={`flex h-12 w-full items-center gap-2 px-4 text-left text-sm text-fg-dim hover:bg-bg-hover ${live.length ? 'border-t border-line' : ''}`} aria-expanded={showEnded} onClick={() => setShowEnded(!showEnded)}>
+            <button className={`flex h-12 w-full items-center gap-2 px-4 text-start text-sm text-fg-dim hover:bg-bg-hover ${live.length ? 'border-t border-line' : ''}`} aria-expanded={showEnded} onClick={() => setShowEnded(!showEnded)}>
               <svg viewBox="0 0 24 24" className={`h-4 w-4 text-fg-muted transition-transform ${showEnded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M9 6l6 6-6 6" /></svg>
               <span className="num">{plural(ended.length, 'ended subscription')}</span>
             </button>
@@ -73,20 +74,24 @@ export function Plans({ snap }: { snap: AppSnapshot }) {
         </div>
       </Section>
 
-      <Section title="Available plans">
-        {!plans ? <Skeleton rows={3} /> : !plans.filter((p) => p.listed).length ? <div className="empty-box">No plans are listed on devnet right now.</div> : (
+      <Section title={tr('Available plans')}>
+        {!plans ? <Skeleton rows={3} /> : !plans.filter((p) => p.listed).length ? <div className="empty-box">{tr('No plans are listed on devnet right now.')}</div> : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {plans.filter((p) => p.listed).map((p) => (
-              <div key={p.address} className="card flex min-w-0 flex-col gap-3">
-                {/* What you get leads; the price sits on the right like a value. */}
-                <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-1">
-                  <div className="font-display text-section">{duration(p.durationSeconds)}</div>
-                  <div className="num font-display text-value">{formatTdvpn(p.price)} <span className="text-meta text-fg-muted">tDVPN</span></div>
+              // The original layout, styled (owner 2026-11-12): length and price on top, what is included
+              // in one line, provider and Subscribe at the foot behind a divider.
+              <div key={p.address} className="card flex min-w-0 flex-col gap-3 p-5 transition-colors hover:border-line-strong" data-plan-card={p.address}>
+                <div className="flex items-baseline justify-between gap-4">
+                  <div className="truncate font-display text-section leading-tight">{planLength(p.durationSeconds)}</div>
+                  <div className="num shrink-0 whitespace-nowrap font-display text-value font-semibold leading-tight">{BigInt(p.price || '0') === 0n ? tr('Free') : <>{formatTdvpnShort(p.price)} <span className="text-meta font-normal text-fg-muted">tDVPN</span></>}</div>
                 </div>
-                <div className="text-sm text-fg-dim">{p.dataCapGb ? `${p.dataCapGb} GB` : 'unlimited data'} · {p.maxConnections ? plural(p.maxConnections, 'server') : 'any number of servers'}</div>
-                <div className="mt-auto flex items-center justify-between gap-4">
-                  <span className="mono truncate text-fg-muted">Provider {short(p.provider)}{p.providerListed ? '' : ' · not listed'}{p.providerAnswering === false ? ' · provider offline' : ''}</span>
-                  <button className="btn-ghost btn-sm" disabled={!p.providerListed} onClick={() => setConfirm(p)}>Subscribe</button>
+                <div className="flex flex-wrap gap-2 text-sm" data-plan-facts>
+                  <span className="rounded-md border border-line bg-bg-input px-2 py-0.5 text-fg-dim">{p.dataCapGb ? `${p.dataCapGb} GB` : tr('Unlimited data')}</span>
+                  <span className="rounded-md border border-line bg-bg-input px-2 py-0.5 text-fg-dim">{p.maxConnections ? trPlural({ one: '{count} server', other: '{count} servers' }, p.maxConnections, { count: p.maxConnections }) : tr('Any number of servers')}</span>
+                </div>
+                <div className="mt-auto flex items-center justify-between gap-4 border-t border-line pt-3">
+                  <span className="min-w-0 truncate text-meta text-fg-muted">{tr('Provider')} <CopyAddr text={p.provider} />{!p.providerListed ? <span className="text-warn"> {tr('(not listed)')}</span> : p.providerAnswering === false ? <span className="text-warn"> {tr('(offline)')}</span> : null}</span>
+                  <button className="btn-primary btn-sm shrink-0" disabled={!p.providerListed} onClick={() => setConfirm(p)}>{tr('Subscribe')}</button>
                 </div>
               </div>
             ))}
@@ -96,34 +101,35 @@ export function Plans({ snap }: { snap: AppSnapshot }) {
 
       {confirm && (
         <ConfirmModal
-          title="Subscribe to plan"
+          title={tr('Subscribe to plan')}
           lines={[`Pay ${tdvpn(confirm.price)} tDVPN from your wallet now.`, `Valid for ${duration(confirm.durationSeconds)} from now. Plans don't renew; you can buy again after it ends.`, 'Cancelling early does not refund the price.', 'Network: Solana devnet (test tokens).']}
-          confirmLabel={`Pay ${tdvpn(confirm.price)} tDVPN`}
-          onConfirm={async () => { await call(window.api.IPC.SUBSCRIBE, { plan: confirm.address, confirmed: true }); }}
+          confirmLabel={tr('Pay {price} tDVPN', { price: tdvpn(confirm.price) })}
+          onConfirm={async () => { await call(window.api.IPC.SUBSCRIBE, { plan: confirm.address, shownPrice: String(confirm.price), confirmed: true }); }}
           onClose={() => setConfirm(null)}
         />
       )}
       {closing && (
         <ConfirmModal
-          title={closing.expiresAt > now ? 'Cancel subscription' : 'Remove subscription'}
+          title={closing.expiresAt > now ? tr('Cancel subscription') : tr('Remove subscription')}
           danger={closing.expiresAt > now}
-          lines={[closing.expiresAt > now ? 'Access ends now and the price is not refunded.' : 'Removes the ended subscription and returns its account rent.']}
-          confirmLabel={closing.expiresAt > now ? 'Cancel subscription' : 'Remove'}
+          lines={closing.expiresAt > now
+            ? ['Access ends now and the price is not refunded.', 'If you buy this plan again, servers you already used count toward its server limit until your access to them ends (up to a day).']
+            : ['Removes the ended subscription. The small network fee paid when it was made is returned to your wallet.']}
+          confirmLabel={closing.expiresAt > now ? tr('Cancel subscription') : tr('Remove')}
           onConfirm={async () => { await call(window.api.IPC.SUBSCRIBE, { close: closing.address, confirmed: true }); }}
           onClose={() => setClosing(null)}
         />
       )}
       {roster && (
-        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true" aria-label="Plan servers">
-          <div className="card max-h-[80vh] w-full max-w-lg overflow-y-auto p-6">
-            <h2 className="mb-2 font-display text-section">Servers on this plan</h2>
+        // UI-027: the same dialog shell as every other dialog (Esc, click outside, focus, scroll lock).
+        <Sheet title={tr('Servers on this plan')} width="max-w-lg" onClose={() => setRoster(null)} data-plan-roster={roster.sub.address}>
             {roster.sub.maxConnections > 0 && (
               <p className="mb-4 text-meta text-fg-dim">
-                This plan gives access on {plural(roster.sub.maxConnections, 'server')}. Access to a server lasts until the plan ends.
-                {new Set(roster.held).size >= roster.sub.maxConnections ? ' All of it is in use, so only the servers marked “Your access” can be used.' : ''}
+                {trPlural({ one: 'This plan gives access on {count} server. Access to a server lasts until the plan ends.', other: 'This plan gives access on {count} servers. Access to a server lasts until the plan ends.' }, roster.sub.maxConnections, { count: roster.sub.maxConnections })}
+                {new Set(roster.held).size >= roster.sub.maxConnections ? <> {tr('All of it is in use, so only the servers marked “Your access” can be used.')}</> : null}
               </p>
             )}
-            {!roster.list ? <Skeleton rows={3} /> : roster.error ? <p className="text-sm text-bad">{roster.error}</p> : !roster.list.length ? <p className="text-sm text-fg-dim">The provider lists no servers for this plan.</p> : (
+            {!roster.list ? <Skeleton rows={3} /> : roster.error ? <p className="text-sm text-bad">{roster.error}</p> : !roster.list.length ? <p className="text-sm text-fg-dim">{tr('The provider lists no servers for this plan.')}</p> : (
               <div className="space-y-1">
                 {roster.list.map((r) => {
                   const n = nodes.find((x) => x.address === r.node);
@@ -131,17 +137,16 @@ export function Plans({ snap }: { snap: AppSnapshot }) {
                     <div key={r.node} className="flex min-h-12 items-center gap-3 rounded px-2 py-2 hover:bg-bg-hover">
                       {n && <Flag code={n.countryCode} />}
                       <span className="min-w-0 flex-1 truncate"><span className="mono">{short(r.node, 8)}</span> <span className="text-meta text-fg-muted">{n && <ProtocolList names={n.protocolNames} />}</span></span>
-                      {roster.held.includes(r.node) && <span className="pill">Your access</span>}
-                      {!r.live && <span className="text-meta text-fg-muted">provider: offline</span>}
-                      <button data-plan-connect={r.node} className="btn-primary btn-sm" disabled={!n?.probe?.ok || !snap.conn.canConnect || (!roster.held.includes(r.node) && roster.sub.maxConnections > 0 && new Set(roster.held).size >= roster.sub.maxConnections)} onClick={() => { if (n) { setSheet({ node: n, sub: roster.sub }); setRoster(null); } }}>{!n?.probe?.ok ? 'Offline' : !roster.held.includes(r.node) && roster.sub.maxConnections > 0 && new Set(roster.held).size >= roster.sub.maxConnections ? 'Limit reached' : 'Connect'}</button>
+                      {roster.held.includes(r.node) && <span className="pill">{tr('Your access')}</span>}
+                      {!r.live && <span className="text-meta text-fg-muted" title={tr('The plan\'s provider is not answering right now, so new access to this server cannot be given.')}>{tr('provider offline')}</span>}
+                      <button data-plan-connect={r.node} className="btn-primary btn-sm" disabled={!n?.probe?.ok || r.listed === false || !snap.conn.canConnect || (!roster.held.includes(r.node) && roster.sub.maxConnections > 0 && new Set(roster.held).size >= roster.sub.maxConnections)} onClick={() => { if (n) { setSheet({ node: n, sub: roster.sub }); setRoster(null); } }}>{!n?.probe?.ok ? tr('Offline') : r.listed === false ? tr('Not listed now') : !roster.held.includes(r.node) && roster.sub.maxConnections > 0 && new Set(roster.held).size >= roster.sub.maxConnections ? tr('Limit reached') : tr('Connect')}</button>
                     </div>
                   );
                 })}
               </div>
             )}
-            <div className="mt-4 text-right"><button className="btn-ghost" onClick={() => setRoster(null)}>Close</button></div>
-          </div>
-        </div>
+            <div className="mt-4 text-end"><button className="btn-ghost" onClick={() => setRoster(null)}>{tr('Close')}</button></div>
+        </Sheet>
       )}
       {sheet && <ConnectSheet node={sheet.node} snap={snap} subscription={{ provider: sheet.sub.provider, subscription: sheet.sub.address }} onClose={() => setSheet(null)} />}
     </div>

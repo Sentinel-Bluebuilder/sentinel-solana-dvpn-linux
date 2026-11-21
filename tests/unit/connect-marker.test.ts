@@ -49,7 +49,7 @@ describe('cross-process connect marker (DC1)', () => {
       fs.writeFileSync(p.join(d, 'connect-in-progress.json'), JSON.stringify({ pid: process.pid, startedAt: Date.now(), node: 'n' }));
       const t = setInterval(() => {
         try { if (JSON.parse(fs.readFileSync(p.join(d, 'connect-cancel.json'), 'utf8')).pid === process.pid) { fs.rmSync(p.join(d, 'connect-in-progress.json')); clearInterval(t); process.exit(0); } }
-        catch (e) { if (e.code !== 'ENOENT') throw e; }
+        catch (e) { if (e.code !== 'ENOENT' && !(e instanceof SyntaxError)) throw e; } // missing, or read mid-write: next poll (as readJson does)
       }, 100);
       setTimeout(() => process.exit(3), 15000);
     `]);

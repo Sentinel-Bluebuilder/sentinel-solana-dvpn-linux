@@ -10,19 +10,6 @@ export interface CheckingWatchDeps {
   everyMs?: number;
 }
 
-/**
- * A connect started elsewhere (the CLI) is found by the idle session poll. While dvpnd lists it as
- * "checking", the app shows "Checking the connection…" without adopting it (no session to follow
- * yet); once it is live it is adopted as usual, and if the check failed (nothing listed) the
- * label goes back to idle. `showing` = the app currently shows such an outside check.
- */
-export type OutsideCheck = 'show' | 'keep' | 'clear' | 'adopt' | 'none';
-export function outsideCheck(running: { status: string } | undefined, showing: boolean): OutsideCheck {
-  if (running?.status === 'checking') return showing ? 'keep' : 'show';
-  if (running) return 'adopt';
-  return showing ? 'clear' : 'none';
-}
-
 /** Runs `start`, calling onChecking once if dvpnd reports a session in its tunnel check before start settles. */
 export async function withCheckingWatch<T>(start: Promise<T>, deps: CheckingWatchDeps): Promise<T> {
   let done = false;

@@ -1,11 +1,12 @@
 // ─── What a connected session really covers (owner 2026-10-21: "it says connected, IP not changed") ───
 // "Protected" is shown ONLY when the IP that apps use is the node's. V2Ray/Xray sessions are a
-// SOCKS proxy: without the desktop system proxy nothing but proxy-configured apps uses them.
+// SOCKS proxy: without the system proxy nothing but proxy-configured apps uses them.
 // A full tunnel whose direct exit IP is still the user's own IP is not protecting anything.
 
+import { tr, trPlural } from '../../shared/i18n';
 export type Coverage =
   | 'device'      // full tunnel, exit IP checked and not the user's own
-  | 'proxy-apps'  // V2Ray/Xray + desktop system proxy (GNOME/KDE): browsers and proxy-aware apps
+  | 'proxy-apps'  // V2Ray/Xray + system proxy: browsers and proxy-aware apps
   | 'proxy-only'  // V2Ray/Xray, system proxy off: only apps pointed at the SOCKS port
   | 'leaking'     // connected, but traffic still leaves with the user's own IP
   | 'unchecked'   // full tunnel, IP not measured yet (or IP checks turned off)
@@ -15,13 +16,15 @@ export type Coverage =
 
 export interface CoverageInput {
   proxyEndpoint: string;     // '' for full-tunnel protocols
-  proxyActive: boolean;      // desktop system proxy points at our SOCKS endpoint
+  proxyActive: boolean;      // the system proxy points at our SOCKS endpoint
   directIp: string | null;   // exit IP of a normal (non-proxy) request, measured while connected
   proxyIp?: string | null;   // exit IP through the session's SOCKS proxy (V2Ray/Xray)
   homeIp: string | null;     // the user's own IP, measured while not connected
   nodeIp?: string | null;    // the node's own address: an exit IP equal to it is the VPN for sure
   /** Split tunnelling dvpnd applies to this session (splitNotApplied() === null), else null. */
   split?: 'include' | 'exclude' | null;
+  /** V2Ray/Xray in whole-device mode (TUN): judged like a full tunnel, the system proxy is not set (the macOS app). */
+  wholeDevice?: boolean;
 }
 
 export function coverageOf(i: CoverageInput): Coverage {
@@ -35,7 +38,7 @@ export function coverageOf(i: CoverageInput): Coverage {
 }
 
 function coverageWhole(i: CoverageInput): Coverage {
-  if (i.proxyEndpoint) {
+  if (i.proxyEndpoint && !i.wholeDevice) {
     // Xray whole-device mode (dvpnd ddv7, TUN adapter): a normal, non-proxy request already
     // leaves through the node, so every app is covered whatever the system proxy says.
     if (i.directIp && i.directIp === i.nodeIp) return 'device';
@@ -60,38 +63,52 @@ export interface CoverageCopy {
   ok: boolean;
 }
 
-export function coverageCopy(c: Coverage, ip: { vpnIp?: string | null; homeIp?: string | null; checksOff?: boolean } = {}): CoverageCopy {
-  const via = ip.vpnIp ? ` Sites see ${ip.vpnIp}.` : '';
+// Short and plain (owner 2026-11-12: "user friendly minimalistic"). No IP in the text: the chips under
+// the status show them, hidden until clicked.
+/**
+ * Where a whole-device session applies (Android): the device's name, and the per-app / per-address
+ * choice the VPN service applied at connect. Absent on the desktop.
+ */
+export interface CoverageScope {
+  place?: string;
+  split?: { mode: 'all' | 'include' | 'exclude'; count: number; routeMode?: 'all' | 'include' | 'exclude'; routeCount?: number } | null;
+}
+
+function deviceDetail(scope: CoverageScope): string {
+  // place is 'this phone' (main/app-state.ts, Android) or absent (a computer): one whole sentence per device, never the word dropped in
+  const phone = scope.place === 'this phone';
+  const n = scope.split?.count ?? 0;
+  const r = scope.split?.routeCount ?? 0;
+  const apps = scope.split?.mode === 'include' && n > 0 ? trPlural({ one: 'Only the app you chose uses the VPN.', other: 'Only the {n} apps you chose use the VPN.' }, n)
+    : scope.split?.mode === 'exclude' && n > 0 ? (phone
+      ? trPlural({ one: 'Every app on this phone uses the VPN except the one you chose.', other: 'Every app on this phone uses the VPN except the {n} you chose.' }, n)
+      : trPlural({ one: 'Every app on this computer uses the VPN except the one you chose.', other: 'Every app on this computer uses the VPN except the {n} you chose.' }, n))
+      : phone ? tr('Every app on this phone uses the VPN.') : tr('Every app on this computer uses the VPN.');
+  const routes = scope.split?.routeMode === 'include' && r > 0 ? trPlural({ one: 'Only the address you chose goes through it.', other: 'Only the {n} addresses you chose go through it.' }, r)
+    : scope.split?.routeMode === 'exclude' && r > 0 ? trPlural({ one: 'The address you chose goes direct.', other: 'The {n} addresses you chose go direct.' }, r)
+      : '';
+  return routes ? `${apps} ${routes}` : apps; // two whole sentences side by side
+}
+
+export function coverageCopy(c: Coverage, ip: { vpnIp?: string | null; homeIp?: string | null; checksOff?: boolean; scope?: CoverageScope } = {}): CoverageCopy {
   switch (c) {
     case 'device':
-      return { title: 'Protected', detail: `All apps on this computer go through the VPN.${via}`, ok: true };
+      return { title: tr('Protected'), detail: deviceDetail(ip.scope ?? {}), ok: true };
     case 'proxy-apps':
-      return {
-        title: 'Protected in browsers',
-        detail: `Browsers and apps that use the desktop proxy go through the VPN.${via} Apps that ignore the proxy (games, many command-line tools) use your normal connection.`,
-        ok: true,
-      };
+      return { title: tr('Protected in browsers'), detail: tr('Your browsers use the VPN. Games and some other apps go direct.'), ok: true };
     case 'proxy-only':
-      return {
-        title: 'Connected, not protecting this computer',
-        detail: 'Only apps you point at the VPN proxy use it. Your browser and other apps still use your normal connection. Turn on "Send apps through the VPN" to cover them.',
-        ok: false,
-      };
+      return { title: tr('Connected, not protecting this computer'), detail: tr('Only apps set to use the VPN proxy are covered. Turn on "Send apps through the VPN" to cover your browsers.'), ok: false };
     case 'leaking':
-      return {
-        title: 'Connected, but traffic is not going through the VPN',
-        detail: `Sites still see your own IP${ip.homeIp ? ` ${ip.homeIp}` : ''}. Disconnect and try another server, or open Diagnostics.`,
-        ok: false,
-      };
+      return { title: tr('Not going through the VPN'), detail: tr('Sites still see your own address. Try another server, or open Diagnostics.'), ok: false };
     case 'split-include':
-      return { title: 'Protected for the apps you chose', detail: 'Split tunnelling is on: the apps and addresses you chose go through the VPN. Everything else uses your normal connection.', ok: true };
+      return { title: tr('Protected for the apps you chose'), detail: tr('Only the apps and sites you chose use the VPN.'), ok: true };
     case 'split-exclude':
-      return { title: 'Protected, except what you left out', detail: `Split tunnelling is on: everything goes through the VPN except the apps and addresses you left out.${via}`, ok: true };
+      return { title: tr('Protected, except what you left out'), detail: tr('Everything uses the VPN except what you left out.'), ok: true };
     case 'split-exclude-unconfirmed':
-      return { title: 'Connected, split tunnelling on', detail: `This app's IP check went out directly${ip.homeIp ? ` (${ip.homeIp})` : ''}, probably because its address or the app is on your left-out list, so it cannot confirm the VPN. Check from an app that uses the VPN, or open Diagnostics.`, ok: false };
+      return { title: tr('Connected, split tunnelling on'), detail: tr('This app\'s own check went around the VPN, so it can\'t confirm it. Open Diagnostics to check.'), ok: false };
     default:
       return ip.checksOff
-        ? { title: 'Connected', detail: 'IP checks are off in Settings, so the app cannot confirm your traffic uses the VPN.', ok: false }
-        : { title: 'Connected, checking your IP…', detail: 'Making sure sites see the server, not you.', ok: false };
+        ? { title: tr('Connected'), detail: tr('IP checks are off in Settings, so the app cannot confirm the VPN.'), ok: false }
+        : { title: tr('Checking the connection…'), detail: tr('Making sure sites see the server, not you.'), ok: false };
   }
 }

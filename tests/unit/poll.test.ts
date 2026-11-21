@@ -72,7 +72,7 @@ describe('daemon set flag units', () => {
   it('MB / minutes -> bytes / seconds', () => {
     expect(wholeFlag('prepay-mb', '100', 1_000_000n)).toBe('100000000');
     expect(wholeFlag('prepay-minutes', '10', 60n)).toBe('600');
-    expect(wholeFlag('prepay-mb', '0', 1n)).toBe('0'); // 0 = node minimum (#34)
+    expect(wholeFlag('prepay-mb', '0', 1n)).toBe('0'); // 0 = node minimum (the Android app)
     for (const bad of ['1.5', '-3', 'x', '']) expect(() => wholeFlag('prepay-mb', bad, 1n)).toThrow();
   });
 });

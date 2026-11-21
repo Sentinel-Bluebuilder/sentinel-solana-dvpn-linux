@@ -7,7 +7,7 @@ vi.mock('../../src/core/chain/accounts', () => ({ channelsByOwner: async () => [
 vi.mock('../../src/main/wallet/vault', () => ({ ownerAddress: () => null, ownerSigner: vi.fn() }));
 vi.mock('../../src/main/logger', () => ({ log: { warn: () => undefined, info: () => undefined, error: () => undefined } }));
 vi.mock('../../src/main/daemon/manager', () => ({ daemon: vi.fn(), daemonInfo: () => ({ reachable: false }) }));
-vi.mock('../../src/main/app-state', () => ({ patch: vi.fn(), snapshot: () => ({ session: null }), toast: vi.fn() }));
+vi.mock('../../src/main/app-state', () => ({ patch: vi.fn(), snapshot: () => ({ session: null, settlements: [{ channel: 'B', mode: 1 }, { channel: 'C', mode: 1 }, { channel: 'G', mode: 0 }] }), toast: vi.fn() }));
 const mod = await import('../../src/main/services/settlement');
 
 describe('claimForReuse', () => {
@@ -22,7 +22,13 @@ describe('claimForReuse', () => {
     expect(mod.claimForReuse('A')).toBe(true);
   });
 
-  it('a close that already fired: no reuse (pay a new deposit)', () => {
+  it('owner 2026-11-12: a per-GB deposit is kept for a reconnect after the 10 min', () => {
+    mod.settleChannelSoon('G');
+    vi.advanceTimersByTime(mod.SETTLE_AFTER_MS + 1);
+    expect(mod.claimForReuse('G')).toBe(true);
+  });
+
+  it('per hour: a close that already fired means no reuse (pay a new deposit)', () => {
     mod.settleChannelSoon('B');
     vi.advanceTimersByTime(mod.SETTLE_AFTER_MS + 1);
     expect(mod.claimForReuse('B')).toBe(false);

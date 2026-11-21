@@ -30,6 +30,15 @@ export interface CliEntry {
   confirm?: true;
   /** Not run inside the app terminal (secrets on screen, or a stream that never ends). */
   appBlocked?: string;
+  /** Q0497: the Android wording, where the summary speaks of a computer, an admin prompt or desktop-only tools. */
+  androidSummary?: string;
+  /** Q0497: not offered on Android (no system proxy, no service to install or migrate). */
+  desktopOnly?: true;
+}
+
+/** Q0497: the commands one OS shows, in its own words (Android: no desktop-only commands, androidSummary where set). */
+export function entriesFor(android: boolean): CliEntry[] {
+  return android ? CATALOGUE.filter((e) => !e.desktopOnly).map((e) => (e.androidSummary ? { ...e, summary: e.androidSummary } : e)) : CATALOGUE;
 }
 
 export const CATALOGUE: CliEntry[] = [
@@ -39,45 +48,55 @@ export const CATALOGUE: CliEntry[] = [
 
   { cmd: 'wallet show', group: 'wallet', usage: 'wallet show', summary: 'Address and balances (SOL, tDVPN, refundable, approved).' },
   { cmd: 'wallet receive', group: 'wallet', usage: 'wallet receive', summary: 'Address with a QR code.' },
-  { cmd: 'wallet create', group: 'wallet', usage: 'wallet create --yes', summary: 'New 24-word wallet; prints the phrase once.', confirm: true, appBlocked: 'The recovery phrase is shown only on the Wallet / setup screen.' },
-  { cmd: 'wallet import', group: 'wallet', usage: 'wallet import <file|-> --yes', summary: 'Import a phrase, key file or base58 secret.', confirm: true, appBlocked: 'Secrets are typed only on the Wallet / setup screen.' },
-  { cmd: 'wallet send', group: 'wallet', usage: 'wallet send --to <address> [--tdvpn N] [--sol N] --yes', summary: 'Send tDVPN or SOL.', confirm: true },
-  { cmd: 'wallet logout', group: 'wallet', usage: 'wallet logout --yes', summary: 'Remove the wallet from this computer.', confirm: true },
+  { cmd: 'wallet create', group: 'wallet', usage: 'wallet create [--keyfile <new path>] --yes', summary: 'New 24-word wallet; prints the phrase once. With --keyfile (or DVPN_KEYFILE) naming a new path: writes a key file there instead (no keyring needed).', confirm: true, appBlocked: 'The recovery phrase is shown only on the Wallet / setup screen.' },
+  { cmd: 'wallet import', group: 'wallet', usage: 'wallet import <file|->', summary: 'Import a phrase, key file or base58 secret. Never replaces a wallet already here (log out first).', appBlocked: 'Secrets are typed only on the Wallet / setup screen.' },
+  { cmd: 'wallet send', group: 'wallet', usage: 'wallet send --to <address> [--tdvpn N] [--sol N] [--allow-empty] --yes', summary: 'Send tDVPN or SOL.', confirm: true },
+  { cmd: 'wallet logout', group: 'wallet', usage: 'wallet logout --yes', summary: 'Remove the wallet from this device.', confirm: true },
 
   { cmd: 'device show', group: 'device', usage: 'device show', summary: 'Device key, spending limit, token permission, device SOL.' },
-  { cmd: 'device plan', group: 'device', usage: 'device plan [--allowance N]', summary: 'What setup would sign (no transaction).' },
-  { cmd: 'device setup', group: 'device', usage: 'device setup [--allowance N] --yes', summary: 'Approve tokens, give the device a spending permission (grant), send it fee SOL.', confirm: true },
-  { cmd: 'device register', group: 'device', usage: 'device register [pubkey] [--home <dir>]', summary: 'Adopt an existing service device key.' },
+  { cmd: 'device plan', group: 'device', usage: 'device plan [--allowance N] [--max-price P] [--force]', summary: 'What setup would sign (no transaction).' },
+  { cmd: 'device setup', group: 'device', usage: 'device setup [--allowance N] [--max-price P] [--force] --yes', summary: 'Approve tokens, give the device a spending permission (grant), send it fee SOL.', confirm: true },
+  { cmd: 'device switch', group: 'device', usage: 'device switch --yes', summary: 'Set this computer up for the loaded wallet instead of the one it was set up for (that wallet keeps its deposits, refundable with its own key).', confirm: true, androidSummary: 'Set this phone up for the loaded wallet instead of the one it was set up for (that wallet keeps its deposits, refundable with its own key).' },
+  { cmd: 'device discard-setup', group: 'device', usage: 'device discard-setup --yes', summary: 'Remove a half-finished device setup or wallet switch (a set-up device is never touched).', confirm: true },
+  { cmd: 'device register', group: 'device', usage: 'device register [pubkey] [--home <dir>]', summary: 'Adopt an existing service device key. Pass its address (pubkey) when the key folder is admin-only: that form needs no administrator.', androidSummary: 'Adopt an existing service device key. Pass its address (pubkey) to record it without reading the key.' },
   { cmd: 'device revoke', group: 'device', usage: 'device revoke [--device D] --yes', summary: "Remove this device's spending permission (other devices keep theirs; the shared token approval stays). --device D removes another device of this wallet, e.g. a computer that is gone.", confirm: true },
 
   { cmd: 'daemon version', group: 'service', usage: 'daemon version', summary: 'Service build and network.' },
   { cmd: 'daemon doctor', group: 'service', usage: 'daemon doctor', summary: 'Service health checks (ok / warn / fail).' },
-  { cmd: 'daemon dns-check', group: 'service', usage: 'daemon dns-check [--dns handshake|cloudflare|ip,ip]', summary: 'Ask each DNS server one question from this computer; exit 1 when none answers (same check as the Settings DNS picker).' },
-  { cmd: 'daemon drivers', group: 'service', usage: 'daemon drivers', summary: 'WireGuard, AmneziaWG, OpenVPN, nftables, DNS: ready or missing (no admin).' },
-  { cmd: 'daemon repair-drivers', group: 'service', usage: 'daemon repair-drivers --yes', summary: 'Install or repair missing VPN drivers (one admin prompt).', confirm: true },
+  { cmd: 'daemon dns-check', group: 'service', usage: 'daemon dns-check [--dns handshake|cloudflare|ip,ip]', summary: 'Ask each DNS server one question from this computer; exit 1 when none answers (same check as the Settings DNS picker).', androidSummary: 'Ask each DNS server one question from this phone; exit 1 when none answers (same check as the Settings DNS picker).' },
+  { cmd: 'daemon drivers', group: 'service', usage: 'daemon drivers', summary: 'The VPN drivers and tools this computer needs (WireGuard, AmneziaWG, OpenVPN and their helpers): ready or missing (no admin).', androidSummary: 'The protocol programs this phone needs (WireGuard, AmneziaWG, V2Ray, Xray, Hysteria2, OpenVPN): bundled and ready, or missing.' },
+  { cmd: 'daemon repair-drivers', group: 'service', usage: 'daemon repair-drivers --yes', summary: 'Install or repair missing VPN drivers (one admin prompt).', confirm: true, androidSummary: 'Re-link the protocol programs bundled with the app (the VPN engine restarts only if one was missing).' },
   { cmd: 'daemon init', group: 'service', usage: 'daemon init', summary: 'Create the device key (no admin needed).' },
-  { cmd: 'daemon install', group: 'service', usage: 'daemon install --yes', summary: 'Install and start the service (one admin prompt).', confirm: true },
+  { cmd: 'daemon install', group: 'service', usage: 'daemon install --yes', summary: 'Install, update after an app update, and start the service (one admin prompt).', confirm: true, androidSummary: 'Restart the VPN engine (also after an app update); no prompt.' },
+  { cmd: 'daemon uninstall', group: 'service', usage: 'daemon uninstall --yes', summary: 'Remove the VPN service from this computer: networking restored, device key kept (one admin prompt). Then remove the app itself.', confirm: true, desktopOnly: true },
+  { cmd: 'daemon migrate', group: 'service', usage: 'daemon migrate [--legacy-dvpnd PATH] --yes', summary: 'Move the service home of an older version to the new layout, same device key and settings (run as administrator; the installer does this).', confirm: true, desktopOnly: true },
   { cmd: 'daemon settings', group: 'service', usage: 'daemon settings', summary: 'Kill switch, DNS, LAN, RPC (key hidden).' },
-  { cmd: 'daemon set', group: 'service', usage: 'daemon set [--kill-switch off|on|persist] [--dns handshake|cloudflare|ip,ip] [--dns-mode resolvectl|resolvconf|none] [--allow-lan true|false] [--split-mode off|include|exclude] [--split-apps "PATH;..."|none] [--split-routes IP-or-CIDR,...|none] [--basis per_gb|per_hour] [--escrow tDVPN] [--prepay-mb N] [--prepay-minutes N] [--rpc URL] [--rpc-ws URL] --yes', summary: 'Change service settings (admin prompt, restarts it).', confirm: true },
+  { cmd: 'daemon set', group: 'service', usage: 'daemon set [--kill-switch off|on|persist] [--allow-remote-lockout] [--dns handshake|cloudflare|ip,ip] [--dns-mode netsh|networksetup|resolvectl|resolvconf|vpn|none] [--allow-lan true|false] [--whole-device true|false] [--split-mode off|include|exclude] [--split-apps "<app path>;..."|none] [--split-routes IP-or-CIDR,...|none] [--basis per_gb|per_hour] [--escrow tDVPN] [--prepay-mb N] [--prepay-minutes N] [--rpc URL] [--rpc-ws URL] --yes', summary: 'Change service settings (admin prompt, restarts it).', confirm: true, androidSummary: 'Change VPN engine settings (restarts the engine; a running session ends).' },
   { cmd: 'daemon restore-network', group: 'service', usage: 'daemon restore-network', summary: 'End any session, release kill switch and proxy.' },
 
-  { cmd: 'nodes list', group: 'servers', usage: 'nodes list [--online] [--country DE] [--protocol wireguard] [--sort price] [--no-probe]', summary: 'Every listed server, checked live.' },
+  { cmd: 'nodes list', group: 'servers', usage: 'nodes list [--online] [--country DE] [--protocol wireguard] [--sort price] [--limit N] [--no-probe]', summary: 'Every listed server, checked live.' },
   { cmd: 'nodes show', group: 'servers', usage: 'nodes show <node>', summary: 'One server: prices, protocols, signature checks.' },
   { cmd: 'nodes fav', group: 'servers', usage: 'nodes fav <node>', summary: 'Add or remove a favourite.' },
   { cmd: 'nodes recent', group: 'servers', usage: 'nodes recent', summary: 'Servers you used most recently.' },
   { cmd: 'cost', group: 'servers', usage: 'cost <node> [--basis per_gb|per_hour] [--units N]', summary: 'Exact deposit before you connect.' },
 
+  { cmd: 'agent up', group: 'connect', usage: 'agent up [--protocol any|wireguard|amneziawg|openvpn|v2ray|xray|hysteria2] [--country CC] [--node N] [--basis per_gb|per_hour] [--units N] [--plan <subscription>] [--max-price N] [--raise-limit | --raise-limit-to N] --yes', summary: 'For AI agents: pick the best online server that matches, pay a deposit (or use a plan) and connect. One JSON line with the exit IP, SOCKS endpoint and next step. Already connected: answers the live session. A deposit above the spending limit of this computer is refused until you add --raise-limit.', confirm: true },
+  { cmd: 'agent down', group: 'connect', usage: 'agent down --yes', summary: 'For AI agents: disconnect, close per-hour deposits at once (they bill until closed) and start the refund of per-GB ones. Says what is refundable and when.', confirm: true },
+  { cmd: 'agent status', group: 'connect', usage: 'agent status', summary: 'For AI agents: wallet, session and exit IP as one JSON line with the next step (e.g. what to fund).' },
   { cmd: 'connect', group: 'connect', usage: 'connect <node> [--basis per_gb|per_hour] [--units N] [--plan <subscription>] [--switch] --yes', summary: 'Pay a deposit (or use a plan) and connect.', confirm: true },
   { cmd: 'connect --follow', group: 'connect', usage: 'connect <node> … --follow', summary: 'Connect, then print usage every 5 s.', confirm: true, appBlocked: 'The Connect screen shows live usage.' },
   { cmd: 'disconnect', group: 'connect', usage: 'disconnect', summary: 'Stop the session; the deposit settles later.' },
   { cmd: 'sessions', group: 'connect', usage: 'sessions', summary: 'Sessions the service holds.' },
   { cmd: 'tickets', group: 'connect', usage: 'tickets', summary: 'Plan access tickets the service holds.' },
-  { cmd: 'proxy status', group: 'connect', usage: 'proxy status', summary: 'SOCKS endpoint and system-proxy state.' },
-  { cmd: 'proxy on', group: 'connect', usage: 'proxy on --yes', summary: 'Point desktop apps (GNOME/KDE system proxy) at the session SOCKS proxy.', confirm: true },
-  { cmd: 'proxy browser', group: 'connect', usage: 'proxy browser [--browser chrome|chromium|edge] [--url U]', summary: 'Open Chrome, Chromium or Edge in its own profile through the session (only that window uses the VPN).' },
-  { cmd: 'proxy off', group: 'connect', usage: 'proxy off', summary: 'Restore your own proxy settings.' },
+  { cmd: 'proxy status', group: 'connect', usage: 'proxy status', summary: 'SOCKS endpoint and system-proxy state.', desktopOnly: true },
+  { cmd: 'proxy on', group: 'connect', usage: 'proxy on --yes', summary: 'Point this computer\'s apps (the system proxy) at the session SOCKS proxy.', confirm: true, desktopOnly: true },
+  { cmd: 'proxy browser', group: 'connect', usage: 'proxy browser [--browser NAME] [--url U]', summary: 'Open a Chromium browser (Edge or Chrome; Chromium on macOS) in its own profile through the session (only that window uses the VPN).', desktopOnly: true },
+  { cmd: 'proxy off', group: 'connect', usage: 'proxy off', summary: 'Restore your own proxy settings.', desktopOnly: true },
   { cmd: 'split status', group: 'connect', usage: 'split status', summary: 'Split tunnelling: mode, chosen apps and addresses, and what each protocol does with them.' },
-  { cmd: 'split apps', group: 'connect', usage: 'split apps [--search TEXT]', summary: 'Installed and running apps you can choose (full paths for daemon set --split-apps).' },
+  { cmd: 'split apps', group: 'connect', usage: 'split apps [--search TEXT]', summary: 'Installed and running apps you can choose (full paths for daemon set --split-apps; Android: package names).' },
+  { cmd: 'split show', group: 'connect', usage: 'split show', summary: 'Android: which apps and addresses use the VPN (all, only these, all except these).' },
+  { cmd: 'split set', group: 'connect', usage: 'split set all|include|exclude [package…]', summary: 'Android: choose apps for the VPN, every protocol. Applies from the next connect.' },
+  { cmd: 'split routes', group: 'connect', usage: 'split routes all|include|exclude [address|network…]', summary: 'Android: choose addresses for the VPN (like 10.0.0.0/8), every protocol. Applies from the next connect.' },
 
   { cmd: 'plans list', group: 'plans', usage: 'plans list', summary: 'Every plan on the network.' },
   { cmd: 'plans roster', group: 'plans', usage: 'plans roster <plan>', summary: 'Servers on a plan, live or down.' },
@@ -94,10 +113,13 @@ export const CATALOGUE: CliEntry[] = [
   { cmd: 'history summary', group: 'money', usage: 'history summary', summary: 'Totals, last 30 days, top servers.' },
   { cmd: 'history export', group: 'money', usage: 'history export [--out file.csv]', summary: 'Session history as CSV.' },
 
-  { cmd: 'test plan', group: 'testing', usage: 'test plan <node…> | --online', summary: 'Most a test run could lock in deposits (no transaction).' },
-  { cmd: 'test run', group: 'testing', usage: 'test run <node…> | --online [--max-nodes N] [--max-spend N] --yes', summary: 'Real session on each server, one at a time: connect time, exit IP, DNS, speed → FAST / SLOW / FAIL. Test deposits are closed after.', confirm: true },
-  { cmd: 'test stop', group: 'testing', usage: 'test stop', summary: 'Stop a running test at its next step (the server being tested is disconnected first; it shows as CANCELLED). Ctrl-C does the same in the terminal running it.' },
-  { cmd: 'test history', group: 'testing', usage: 'test history', summary: 'Past test runs with FAST / SLOW / FAIL counts.' },
+  { cmd: 'test servers', group: 'testing', usage: 'test servers', summary: 'The server count every screen shows: on the network, can be used, not answering, not verified, not checked, listing expired (no transaction).' },
+  { cmd: 'test plan', group: 'testing', usage: 'test plan <server…> | --online [--country C] [--protocol P] [--failed-last] [--never-tested] [--max-nodes N] [--limit N]', summary: 'What a test run would hold on deposit at once and pay in deposits over the run (no transaction).' },
+  { cmd: 'test run', group: 'testing', usage: 'test run <server…> | --online [--country C] [--protocol P] [--failed-last] [--never-tested] [--max-nodes N] [--limit N] --yes | --resume --yes', summary: 'A real session on each server, one at a time: on the network, answers, details verified, deposit paid, connected, exit address, names resolve, speed, deposit closed. Each server ends as Working, Slow, Failed or Not tested. Each deposit is closed right after its server. --resume continues a run that stopped.', confirm: true },
+  // test-cmd.ts still reads --max-spend; listed so the unknown-flag check (unknownFlags) keeps accepting it.
+  { cmd: 'test run --max-spend', group: 'testing', usage: 'test run … --max-spend N --yes', summary: 'Old name of --limit, still accepted.', confirm: true },
+  { cmd: 'test stop', group: 'testing', usage: 'test stop', summary: 'Stop a running test at its next stage (the server being tested is disconnected and its deposit closed first; it shows as Stopped and runs again with --resume). Ctrl-C does the same in the terminal running it.' },
+  { cmd: 'test history', group: 'testing', usage: 'test history', summary: 'Past test runs with their working, slow and failed counts.' },
   { cmd: 'test show', group: 'testing', usage: 'test show [run-id] [--compare]', summary: 'One run per server (latest if no id); --compare shows what changed since the run before.' },
   { cmd: 'test export', group: 'testing', usage: 'test export [run-id] [--out file.json]', summary: 'A run as JSON.' },
 
@@ -136,7 +158,7 @@ export function catalogueMarkdown(): string {
   return out.join('\n');
 }
 
-// ─── Unknown flags are refused (#33 rig 2: `daemon set --dns-preset quad9 --yes` said "Applied
+// ─── Unknown flags are refused (the macOS app rig 2: `daemon set --dns-preset quad9 --yes` said "Applied
 // and restarted" and changed nothing; the real flag is --dns) ───
 /** Flags every command takes. */
 export const GLOBAL_FLAGS: readonly string[] = ['help', 'json', 'keyfile', 'verbose', 'yes'];

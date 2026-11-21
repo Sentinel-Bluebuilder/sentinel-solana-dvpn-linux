@@ -38,12 +38,12 @@ describe('confirm dialog over a reloading plan (Q0317)', () => {
 });
 
 describe('wiring: no open dialog is gated on data that reloads (Q0317 sweep)', () => {
-  it('device permission step renders its dialog from the frozen plan and shows load errors', () => {
+  it('onboarding has no device permission step or signing dialog (owner 2026-11-11: signed in the background)', () => {
     const src = read('src/renderer/src/screens/Onboarding.tsx');
-    expect(src).not.toMatch(/\{open && plan && \(/);
-    expect(src).toMatch(/\{dlg\.open && \(\s*<ConfirmModal\s+title="Sign device permission"\s+lines=\{\[\.\.\.dlg\.open\.steps/);
-    expect(src).toMatch(/dispatch\(\{ type: 'failed', error:/);
-    expect(src).toMatch(/data-plan-error/);
+    expect(src).not.toMatch(/Sign device permission/);
+    expect(src).not.toMatch(/Review and sign/);
+    expect(src).not.toMatch(/PermissionStep/);
+    expect(src).not.toMatch(/id: 'permission'/);
   });
 
   it('node test dialog holds its own plan copy', () => {

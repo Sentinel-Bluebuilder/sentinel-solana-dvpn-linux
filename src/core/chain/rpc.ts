@@ -9,6 +9,7 @@
 import { pinHosts } from '../net/dns-pin';
 import { validHost } from '../net/host';
 import { Connection, type Commitment } from '@solana/web3.js';
+import { tr } from '../../shared/i18n';
 
 const COOLDOWN_MS = 60_000;
 const RATE_LIMIT_COOLDOWN_MS = 8_000;
@@ -31,7 +32,7 @@ const HEALTH_FRESH_MS = 50_000;
 export function isValidRpcUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
-    if (!validHost(u.hostname)) return false; // WHATWG URL accepts hosts like x"y (#34)
+    if (!validHost(u.hostname)) return false; // WHATWG URL accepts hosts like x"y (the Android app)
     if (u.protocol === 'https:') return true;
     if (u.protocol === 'http:') return ['127.0.0.1', 'localhost', '[::1]'].includes(u.hostname);
     return false;
@@ -65,21 +66,20 @@ export function resetRpcTransport(): void {
   routeChangedAt = Date.now();
 }
 
-// ─── Node's own fetch pool (Q0390) ───
+// ─── Node's own fetch pool (Q0390, port of FLX the Linux app 02ac35d6) ───
 // web3.js calls Node's built-in fetch when there is one, and that ignores web3's keep-alive agent:
 // every RPC socket lives in ONE global pool (undici), which connections.clear() never touched. On a
 // server switch with the kill switch held (Azure deb12, TLX2 10-30), getSlot reused the sockets opened
 // on the old tunnel route and timed out 3 s each, while a fresh connection answered in 0.16 s; the
 // switch failed with "your internet has not come back yet". Swap the pool for a new one, close the old.
-const FETCH_POOL = Symbol.for('undici.globalDispatcher.1');
-type Pool = { constructor: new () => Pool; destroy?: () => Promise<void> };
-
 // New calls go to the fresh pool at once, so nothing can reuse an old socket. The old pool is destroyed
 // after FETCH_POOL_GRACE_MS, not at once: a session end can land while the switch's own chain call is
-// mid-air, and destroying at once aborted it (TMC 10-30, Mac app switch AWG→WG "endpoint didn't answer
-// in time"; FMC 598effdf). Not close(): undici then ignores a later destroy(), so a call stuck on the old
-// route would never be cut (probe on Node 22.12).
+// mid-air, and destroying at once aborted it (Q0393; TMC 10-30, Mac switch AWG→WG "endpoint didn't answer
+// in time"). Not close(): undici then ignores a later destroy(), so a call stuck on the old route would
+// never be cut (probe on Node 22.12).
+const FETCH_POOL = Symbol.for('undici.globalDispatcher.1');
 export const FETCH_POOL_GRACE_MS = 5_000;
+type Pool = { constructor: new () => Pool; destroy?: () => Promise<void> };
 
 /** Replace Node's global fetch pool with a fresh one and destroy the old after a grace (its sockets use the old route). Exported for tests. */
 export function dropFetchPool(graceMs = FETCH_POOL_GRACE_MS): boolean {
@@ -104,6 +104,7 @@ const SETTLING_COOLDOWN_MS = 3_000;
 
 /** How long a transport failure benches an endpoint (short while routes/DNS settle). Exported for tests. */
 export function benchMs(err: unknown, now = Date.now()): number {
+  if (isOverLimit(err)) return OVER_LIMIT_COOLDOWN_MS;
   if (isRateLimited(err)) return RATE_LIMIT_COOLDOWN_MS;
   return now - routeChangedAt < SETTLING_MS ? SETTLING_COOLDOWN_MS : COOLDOWN_MS;
 }
@@ -136,6 +137,23 @@ export function rpcCandidates(): string[] {
 export function benchEndpoint(url: string, reason: string, ms = COOLDOWN_MS): void {
   benched.set(url, Date.now() + ms);
   console.warn(`[rpc] benched ${redactUrl(url)} for ${ms / 1000}s: ${reason}`);
+}
+
+// ─── A private endpoint that is over its plan's limit (UI-169) ───
+// Owner laptop 2026-11-11 to 11-15: the keyed endpoint answered 429 "max usage reached" on every read. The app
+// benched it for 8 s like a momentary rate limit, tried it again, and fell back to the public endpoint each
+// time, without ever saying so. That answer does not clear by waiting seconds: it is tried again every 10
+// minutes, and the state says the private connection is over its limit and the public one is in use.
+export const OVER_LIMIT_COOLDOWN_MS = 10 * 60_000;
+export function isOverLimit(err: unknown): boolean {
+  return /max usage reached|credits? (?:exhausted|exceeded)|quota (?:exceeded|exhausted)|usage limit/i.test(String((err as Error)?.message ?? err ?? ''));
+}
+const PUBLIC_RPC_RE = /api\.(devnet|testnet|mainnet-beta)\.solana\.com/;
+const overLimit = new Map<string, number>();
+function noteOverLimit(url: string, err: unknown): void {
+  if (PUBLIC_RPC_RE.test(url) || !isOverLimit(err) || overLimit.has(url)) return;
+  overLimit.set(url, Date.now());
+  console.warn(`[rpc] ${redactUrl(url)} is over its usage limit; using the other endpoints and trying it again every ${OVER_LIMIT_COOLDOWN_MS / 60_000} min`);
 }
 
 export function isRateLimited(err: unknown): boolean {
@@ -249,6 +267,7 @@ export async function rpcCall<T>(fn: (c: Connection, url: string) => Promise<T>,
     try {
       const out = await withTimeout(fn(connectionFor(url), url), attemptMs, label);
       silenceEnd(url, true);
+      if (overLimit.delete(url)) console.warn(`[rpc] ${redactUrl(url)} answers again; its usage limit has cleared`);
       lastServing = url;
       lastLatencyMs = Date.now() - started;
       lastOkAt = Date.now();
@@ -264,6 +283,7 @@ export async function rpcCall<T>(fn: (c: Connection, url: string) => Promise<T>,
       // your internet connection"). Silence counts from the endpoint's oldest open request (silentSince).
       const noAnswer = !/timed out|timeout|ETIMEDOUT/i.test(msg) && quietMs >= Math.min(NO_ANSWER_MS, attemptMs * 0.75);
       errors.push(`${redactUrl(url)}: ${msg.split('\n')[0].slice(0, 160)}${noAnswer ? ` (no answer after ${Math.round(quietMs / 1000)} s)` : ''}`);
+      noteOverLimit(url, err);
       benchEndpoint(url, `${label}: ${msg.slice(0, 120)}`, benchMs(err));
       if (i + 1 < attempts) {
         const ev = { label, attempt: i + 1, error: msg.split('\n')[0].slice(0, 160), leftMs: Math.max(0, deadline - Date.now()) };
@@ -314,6 +334,19 @@ export interface RpcState {
   pool: string[];
   benched: Array<{ url: string; untilMs: number }>;
   publicOnly: boolean;
+  /** A private (keyed) endpoint answered that it is over its usage limit and has not answered since (UI-169). */
+  privateOverLimit: boolean;
+  /** Since when (ms), null when none is over its limit. */
+  overLimitSince: number | null;
+  /** Which kind of endpoint answered the last read. */
+  inUse: 'private' | 'public';
+}
+
+/** Only endpoints still configured count (one removed in Settings is forgotten). Exported for tests. */
+export function overLimitState(): Pick<RpcState, 'privateOverLimit' | 'overLimitSince' | 'inUse'> {
+  for (const u of [...overLimit.keys()]) if (!urls.includes(u)) overLimit.delete(u);
+  const since = overLimit.size ? Math.min(...overLimit.values()) : null;
+  return { privateOverLimit: since !== null, overLimitSince: since, inUse: PUBLIC_RPC_RE.test(lastServing) ? 'public' : 'private' };
 }
 
 export async function getRpcState(): Promise<RpcState> {
@@ -334,6 +367,7 @@ export async function getRpcState(): Promise<RpcState> {
     benched: urls.filter((u) => (benched.get(u) ?? 0) > now).map((u) => ({ url: redactUrl(u), untilMs: (benched.get(u) ?? 0) - now })),
     // Public devnet RPC 429s under real use (docs/19): the UI warns while it is the only endpoint.
     publicOnly: urls.every((u) => /api\.devnet\.solana\.com/.test(u)),
+    ...overLimitState(),
   };
 }
 
@@ -353,12 +387,12 @@ export function rpcUnavailableCopy(err: unknown): { message: string; action: str
   const slow = tries.length > 0 && tries.every((l) => /timed out|timeout|ETIMEDOUT|UND_ERR_CONNECT_TIMEOUT|\(no answer after \d+ s\)/i.test(l));
   return {
     message: busy
-      ? 'The Solana network endpoint is rate-limiting requests right now. Wait a minute and try again.'
+      ? tr('The Solana network endpoint is rate-limiting requests right now. Wait a minute and try again.')
       : notRpc
-        ? 'The Solana network endpoint did not answer like a Solana RPC endpoint. Check the endpoint address.'
+        ? tr('The Solana network endpoint did not answer like a Solana RPC endpoint. Check the endpoint address.')
         : slow
-          ? 'The Solana network is slow to answer. Try again, or set a different RPC endpoint in Settings.'
-          : 'The Solana network endpoint could not be reached. Check your internet connection and try again.',
+          ? tr('The Solana network is slow to answer. Try again, or set a different RPC endpoint in Settings.')
+          : tr('The Solana network endpoint could not be reached. Check your internet connection and try again.'),
     action: 'Or use your own endpoint: devnet-dvpn rpc set <url>',
   };
 }

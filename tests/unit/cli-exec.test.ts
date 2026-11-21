@@ -18,6 +18,12 @@ describe('in-app CLI', () => {
     expect(r.ok).toBe(true);
     expect(r.text).toMatch(/devnet/i);
   });
+  it('E-81: version --json names the program id and the mint (the deployment an agent pays into)', async () => {
+    const r = await runCliLine('version --json');
+    expect(r.ok).toBe(true);
+    const j = JSON.parse(r.text); // the in-app CLI pretty-prints one object
+    expect(j).toMatchObject({ network: 'devnet', programId: 'J52dyXW3a6mkatvrQct3fo6dA9vqUtcsdBt5gGqrTBXs', mint: 'Hen2LVP6KooGaXEvdSyCHWghsEY4gLLn7wix8z6zHFSa' });
+  });
   it('accepts the program name in front', async () => expect((await runCliLine('devnet-dvpn version')).ok).toBe(true));
   it('help lists commands from the catalogue', async () => expect((await runCliLine('help')).text).toContain('wallet send'));
   it('refuses unknown commands', async () => expect(await runCliLine('teleport')).toMatchObject({ ok: false, code: 3 }));

@@ -9,8 +9,8 @@ describe('prepay used by the deposit reuse check', () => {
     expect(prepayFor(node, 'per_hour', '0', '0')).toBe(100n);
     expect(prepayFor(node, 'per_gb', '0', '0')).toBe(100n);
     expect(prepayFor(node, 'per_hour', undefined, null)).toBe(100n);
-    expect(prepayFor(node, 'per_hour', '0', '1800')).toBe(500n);
-    expect(prepayFor(node, 'per_gb', '2000000000', '0')).toBe(2000n);
+    expect(prepayFor(node, 'per_hour', '0', '1800')).toBe(250n); // Q0338: capped at 900 s
+    expect(prepayFor(node, 'per_gb', '2000000000', '0')).toBe(269n); // Q0338: capped at 256 MiB
   });
   it('a 1 GB per-GB deposit with the first 100 MB block taken is still reusable (ui-win-2 adopt)', async () => {
     const { prepayFor } = await import('../../src/main/services/connect-checks');

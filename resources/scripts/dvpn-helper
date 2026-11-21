@@ -7,7 +7,7 @@ set -euo pipefail
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 step="${1:-}"
 case "$step" in
-  setup-daemon|apply-daemon-config|remove-tunnels|install-deps|uninstall-cleanup|service-ctl) ;;
+  setup-daemon|apply-daemon-config|remove-tunnels|install-deps|uninstall-cleanup|service-ctl|grant-socket) ;;
   *) echo "dvpn-helper: unknown step '$step'" >&2; exit 64 ;;
 esac
 [ "$(id -u)" = 0 ] || { echo "dvpn-helper: must run as root" >&2; exit 77; }

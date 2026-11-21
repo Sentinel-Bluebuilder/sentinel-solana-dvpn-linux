@@ -10,17 +10,18 @@ const read = (p: string): string => readFileSync(join(__dirname, '../..', p), 'u
 describe('money action toasts (Q0310)', () => {
   it('names the amount or what was sent', () => {
     expect(topUpToast('0.01')).toBe('Topped up 0.01 tDVPN.');
-    expect(withdrawToast('1.5')).toBe('Moved 1.5 tDVPN of refunds to your wallet.');
-    expect(settleToast(['a', 'b', 'c'])).toMatch(/^Settlement sent: 3 transactions\./);
-    expect(settleToast(['a'])).toMatch(/^Settlement sent: 1 transaction\./);
-    expect(settleToast([])).toMatch(/^Nothing to settle right now/);
-    expect(settleToast(undefined)).toMatch(/^Nothing to settle right now/);
+    expect(withdrawToast('1.5')).toBe('Added 1.5 tDVPN of refunds to your wallet.');
+    expect(settleToast(['a', 'b', 'c'])).toBe('3 refunds started. Each reaches your wallet when ready.');
+    expect(settleToast(['a'])).toBe('Refund started. It reaches your wallet when ready.');
+    expect(settleToast([])).toMatch(/^No refund is ready yet/);
+    expect(settleToast(undefined)).toMatch(/^No refund is ready yet/);
     expect(sendToast('2', 'sol', 'AbCdEfGhIjKlMnOp')).toBe('Sent 2 SOL to AbCd…MnOp.');
   });
 
   it('every money dialog toasts after its call returns', () => {
     const activity = read('src/renderer/src/screens/Activity.tsx');
-    expect(activity).toMatch(/SETTLE_RUN, \{ confirmed: true \}\); useApp\.getState\(\)\.toast\('success', settleToast\(sigs\)\)/);
+    // rc.3.1 F1: Refund all adds how many it skipped to the same toast (other-device-rows.test.ts).
+    expect(activity).toMatch(/SETTLE_RUN, \{[^;]*confirmed: true \}\);\s*const skipped = [^;]*;\s*useApp\.getState\(\)\.toast\('success', [^;]*settleToast\(sigs\)/);
     expect(activity).toMatch(/CHANNEL_FUND, [^)]*\); useApp\.getState\(\)\.toast\('success', topUpToast\(fund\.amount\)\)/);
     const wallet = read('src/renderer/src/screens/Wallet.tsx');
     expect(wallet).toMatch(/IPC\.WITHDRAW, \{ confirmed: true \}\); useApp\.getState\(\)\.toast\('success', withdrawToast\(amount\)\)/);

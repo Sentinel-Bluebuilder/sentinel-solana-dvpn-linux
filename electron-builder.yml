@@ -31,6 +31,8 @@ extraFiles:
     to: dvpnd-THIRD-PARTY-NOTICES.txt
   - from: LICENSE
     to: LICENSE.txt
+# rc.9 (the agent kit, port of the macOS app bea4ebaec): drop node_gyp_bins + foreign prebuilds before the deb / rpm / AppImage are made
+afterPack: scripts/after-pack-linux.cjs
 asarUnpack:
   - resources/**
 # Arch: x64 and arm64, ONE per run. No `arch:` list on purpose: a config arch list overrides the

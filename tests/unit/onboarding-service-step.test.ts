@@ -28,6 +28,7 @@ describe('onboarding service step', () => {
   it('after a successful install the button reads Installed and stays disabled (no second UAC prompt)', () => {
     const btn = read('src/renderer/src/components/InstallServiceButton.tsx');
     expect(btn).toMatch(/disabled=\{state !== 'idle'\}/);
-    expect(btn).toMatch(/state === 'done' \? 'Installed'/);
+    // Android: the service runs inside the app, so the done state reads 'Started' there.
+    expect(btn).toMatch(/state === 'done' \? (?:tr\('Installed'\)|osPick\(\{ android: tr\('Started'\) \}, tr\('Installed'\)\))/);
   });
 });

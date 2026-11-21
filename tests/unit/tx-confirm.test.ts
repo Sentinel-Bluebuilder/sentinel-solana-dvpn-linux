@@ -40,6 +40,28 @@ describe('confirmSignature', () => {
     await expect(confirmSignature('sig', 10_000, 'x')).rejects.toThrow(/PermissionNotGranted/);
   });
 
+  // CODE-AUDIT L-21: landed in one of the last valid blocks, not yet 'confirmed' when the height passed.
+  const byMethod = (status: () => unknown, height: number) => async (fn: (c: unknown) => unknown) => fn({
+    getSignatureStatuses: async () => ({ value: [status()] }),
+    getBlockHeight: async () => height,
+  });
+  it('height past but the chain knows the tx: reported landed, never expired', async () => {
+    vi.useFakeTimers();
+    let reads = 0;
+    rpcCall.mockImplementation(byMethod(() => (++reads <= 4 ? null /* rounds 1-4; round 4 then reads the height */ : { confirmationStatus: 'confirmed', err: null, slot: 9 }), 20_000));
+    const p = confirmSignature('sig', 10_000, 'send');
+    await vi.advanceTimersByTimeAsync(20_000);
+    await expect(p).resolves.toEqual({ ok: true, signature: 'sig', slot: 9 });
+  });
+  it('negative control: height past and still unknown after the second read: expired', async () => {
+    vi.useFakeTimers();
+    rpcCall.mockImplementation(byMethod(() => null, 20_000));
+    const p = confirmSignature('sig', 10_000, 'send');
+    const assertion = expect(p).rejects.toThrow(/expired before confirmation/);
+    await vi.advanceTimersByTimeAsync(20_000);
+    await assertion;
+  });
+
   it('times out with "sent, may still land", not "failed"', async () => {
     vi.useFakeTimers();
     rpcCall.mockImplementation(async () => { throw exhausted(); });
